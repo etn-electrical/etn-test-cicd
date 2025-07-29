@@ -1,4 +1,4 @@
-name: Determine Environment
+name: Calculate Environment
 
 on:
   workflow_call:
@@ -28,7 +28,7 @@ on:
         value: ${{ jobs.determine-environment.outputs.deploy }}
 
 jobs:
-  determine-environment:
+  calculate-environment:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
