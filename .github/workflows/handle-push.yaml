@@ -36,8 +36,8 @@ jobs:
           echo "GitHub Workflow: ${{ github.workflow }}"
           echo "GitHub Workspace: ${{ github.workspace }}"
           echo "GitHub Event Path: ${{ github.event_path }}" 
-          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
-          echo "Need Deploy: ${{ needs.determine-environment.outputs.deploy }}"
+          echo "Environment: ${{ needs.calculate-environment.outputs.environment }}"
+          echo "Need Deploy: ${{ needs.calculate-environment.outputs.deploy }}"
           echo "Version: ${{ needs.determine-version.outputs.version }}"
   
   # Build the Java application
