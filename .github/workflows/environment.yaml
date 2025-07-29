@@ -87,5 +87,5 @@ jobs:
           echo "is_development=$IS_DEVELOPMENT" >> $GITHUB_OUTPUT
           echo "is_testing=$IS_TESTING" >> $GITHUB_OUTPUT
           echo "deploy=$DEPLOY" >> $GITHUB_OUTPUT
-          cat $GITHUB_OUTPUT
           echo "Selected environment: $ENVIRONMENT"
+          cat $GITHUB_OUTPUT
