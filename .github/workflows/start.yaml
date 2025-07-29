@@ -1,12 +1,12 @@
 name: ETN SC Client CI/CD Pipeline
 
-on:
-  push:
-    branches: ['main']  # Only trigger on main branch pushes
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches: [main, develop, release/*, hotfix/*]  # PRs targeting these branches
-  workflow_dispatch:
+# on:
+#   push:
+#     branches: ['main']  # Only trigger on main branch pushes
+#   pull_request:
+#     types: [opened, synchronize, reopened, closed]
+#     branches: [main, develop, release/*, hotfix/*]  # PRs targeting these branches
+#   workflow_dispatch:
 
 # Set concurrency to prevent conflicts and cancel redundant runs
 concurrency:

@@ -1,0 +1,195 @@
+name: PR Updated
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches: [main, develop, release/*, hotfix/*]
+
+# Set concurrency to prevent conflicts and cancel redundant runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Set permissions for all jobs in this workflow
+permissions:
+  contents: read        # Needed for checkout
+  actions: read         # Needed for workflow runs
+  pull-requests: write  # Needed for commenting on PRs
+  checks: write         # Needed for test results
+
+jobs:
+  prepare:
+    name: Prepare PR Update
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      source-branch: ${{ github.head_ref }}
+      target-branch: ${{ github.base_ref }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Print PR Info
+        run: |
+          echo "PR #${{ github.event.pull_request.number }} updated: ${{ github.event.pull_request.title }}"
+          echo "Source branch: ${{ github.head_ref }}"
+          echo "Target branch: ${{ github.base_ref }}"
+          echo "Author: ${{ github.event.pull_request.user.login }}"
+
+      - name: Find Changed Files
+        id: changed-files
+        run: |
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }})
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Check for pom.xml changes
+          if echo "$CHANGED_FILES" | grep -q "pom.xml"; then
+            echo "pom_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "pom_changed=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check for Java source changes
+          if echo "$CHANGED_FILES" | grep -q "\.java$"; then
+            echo "java_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "java_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  incremental-build:
+    name: Incremental Build
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Print PR Info
+        run: |
+          echo "Building PR #${{ github.event.pull_request.number }} update"
+          echo "Source branch: ${{ needs.prepare.outputs.source-branch }}"
+          echo "Target branch: ${{ needs.prepare.outputs.target-branch }}"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: maven
+
+      - name: Build with Maven
+        run: |
+          mvn -B clean package -DskipTests
+
+  incremental-tests:
+    name: Run Tests for Changed Files
+    needs: [prepare, incremental-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: maven
+
+      - name: Run Tests
+        run: |
+          if [[ "${{ needs.prepare.outputs.java_changed }}" == "true" ]]; then
+            echo "Running tests for Java changes in PR #${{ github.event.pull_request.number }}"
+            mvn -B test
+          else
+            echo "No Java changes detected, skipping tests"
+          fi
+
+      - name: Upload Test Results
+        if: always() && needs.prepare.outputs.java_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-pr-${{ github.event.pull_request.number }}-update
+          path: target/surefire-reports/
+          retention-days: 5
+
+  update-pr-comment:
+    name: Update PR Comment
+    needs: [prepare, incremental-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update PR with Build Status
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const buildStatus = '${{ needs.incremental-build.result }}';
+            const testsStatus = '${{ needs.incremental-tests.result }}';
+            const javaChanged = '${{ needs.prepare.outputs.java_changed }}';
+            
+            const emoji = {
+              success: '✅',
+              failure: '❌',
+              cancelled: '⚠️',
+              skipped: '⏭️'
+            };
+            
+            let buildEmoji = emoji[buildStatus] || '❓';
+            let testsEmoji = emoji[testsStatus] || '❓';
+            if (javaChanged !== 'true' && testsStatus === 'skipped') {
+              testsEmoji = emoji.skipped;
+            }
+            
+            const comment = `## 🔄 PR Update Build Status
+            
+            PR #${context.issue.number} has been updated.
+            
+            | Check | Status |
+            | ----- | ------ |
+            | Build | ${buildEmoji} ${buildStatus} |
+            | Tests | ${testsEmoji} ${javaChanged === 'true' ? testsStatus : 'Skipped (No Java changes)'} |
+            
+            [View Details](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            
+            _Updated at: ${new Date().toISOString()}_`;
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => {
+              return comment.user.login === 'github-actions[bot]' && 
+                     comment.body.includes('PR Update Build Status');
+            });
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }

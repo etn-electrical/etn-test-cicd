@@ -1,0 +1,194 @@
+name: PR Opened
+
+on:
+  pull_request:
+    types: [opened, reopened]
+    branches: [main, develop, release/*, hotfix/*]
+
+# Set concurrency to prevent conflicts and cancel redundant runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Set permissions for all jobs in this workflow
+permissions:
+  contents: read        # Needed for checkout
+  actions: read         # Needed for workflow runs
+  pull-requests: write  # Needed for commenting on PRs
+  checks: write         # Needed for test results
+
+jobs:
+  prepare:
+    name: Prepare PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      source-branch: ${{ github.head_ref }}
+      target-branch: ${{ github.base_ref }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Print PR Info
+        run: |
+          echo "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
+          echo "Source branch: ${{ github.head_ref }}"
+          echo "Target branch: ${{ github.base_ref }}"
+          echo "Author: ${{ github.event.pull_request.user.login }}"
+
+      - name: Add PR Labels
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.issue.number;
+            const targetBranch = context.payload.pull_request.base.ref;
+            
+            // Add labels based on target branch
+            let labelsToAdd = ['needs-review'];
+            if (targetBranch === 'main') {
+              labelsToAdd.push('production');
+            } else if (targetBranch === 'develop') {
+              labelsToAdd.push('development');
+            } else if (targetBranch.startsWith('release/')) {
+              labelsToAdd.push('release');
+            } else if (targetBranch.startsWith('hotfix/')) {
+              labelsToAdd.push('hotfix');
+            }
+            
+            // Add labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: labelsToAdd
+            });
+
+  pr-quality-check:
+    name: PR Quality Check
+    needs: [prepare]
+    uses: ./.github/workflows/quality.yaml
+    with:
+      java-version: '17'
+      maven-args: 'clean test'
+      version-args: 'PR-${{ github.event.pull_request.number }}'
+      context: 'pr'
+      skip-reports: true
+    secrets: inherit
+    permissions: write-all
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [prepare]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Print PR Info
+        run: |
+          echo "Running security scan for PR #${{ github.event.pull_request.number }}"
+          echo "Source branch: ${{ github.head_ref }}"
+          echo "Target branch: ${{ github.base_ref }}"
+
+      - name: Run Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'ETN SC Client'
+          path: '.'
+          format: 'HTML'
+          out: 'reports'
+          args: >
+            --enableExperimental
+            --suppression suppression.xml
+
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report-pr-${{ github.event.pull_request.number }}
+          path: reports/
+          retention-days: 5
+
+      - name: Comment PR with Security Findings
+        uses: actions/github-script@v6
+        if: always()
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Check if report exists
+            if (!fs.existsSync('reports/dependency-check-report.html')) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '⚠️ Security scan failed to produce a report. Please check the workflow run for details.'
+              });
+              return;
+            }
+            
+            // Extract summary from report
+            const securityComment = `## 🔐 Security Scan Results
+            
+            Security scan completed for PR #${context.issue.number}
+            
+            <details>
+              <summary>Click to see scan details</summary>
+              
+              A detailed security report has been generated and is available as an artifact with this workflow run.
+              
+              ### Key points to check:
+              - Review any HIGH or CRITICAL vulnerabilities before merging
+              - Check for new dependencies and their license compliance
+              - Verify that no secrets or credentials were accidentally committed
+            </details>
+            
+            [View full workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: securityComment
+            });
+
+  build-validation:
+    name: Build Validation
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: maven
+
+      - name: Validate Build
+        run: |
+          echo "Building PR #${{ github.event.pull_request.number }} from ${{ github.head_ref }}"
+          mvn -B clean package -DskipTests
+
+      - name: Verify Package Structure
+        run: |
+          echo "Verifying package structure..."
+          if [ -f "target/*.jar" ]; then
+            echo "✅ JAR file successfully created"
+            jar -tf target/*.jar | grep -q "com/example/github/demo/Application.class" && \
+              echo "✅ Application class found in JAR" || echo "❌ Application class missing"
+          else
+            echo "❌ JAR file not created"
+            exit 1
+          fi
