@@ -1,0 +1,92 @@
+name: Version Management Workflow
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version to use for the build'
+    outputs:
+      version:
+        description: 'Calculated version for the build'
+        value: ${{ jobs.version-calc.outputs.version }}
+      is-release:
+        description: 'Whether this is a release build'
+        value: ${{ jobs.version-calc.outputs.is-release }}
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  version-calc:
+    name: Calculate Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is-release: ${{ steps.version.outputs.is-release }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Calculate version
+        id: version
+        run: |
+          # Get current version from pom.xml
+          CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          BASE_VERSION=$(echo $CURRENT_VERSION | sed 's/-SNAPSHOT//')
+          
+          # Determine version based on branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            # Main branch - use semantic version
+            VERSION="${BASE_VERSION}"
+            IS_RELEASE="true"
+          elif [[ "${{ github.ref }}" =~ refs/heads/release/.* ]]; then
+            # Release branch - use RC version
+            RC_NUMBER=$(git rev-list --count HEAD)
+            VERSION="${BASE_VERSION}-rc.${RC_NUMBER}"
+            IS_RELEASE="true"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            # Develop branch - use snapshot with build number
+            BUILD_NUMBER=$(git rev-list --count HEAD)
+            VERSION="${BASE_VERSION}-dev.${BUILD_NUMBER}"
+            IS_RELEASE="false"
+          else
+            # Feature/hotfix branches - use snapshot with commit hash
+            COMMIT_HASH=$(git rev-parse --short HEAD)
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9]/-/g')
+            VERSION="${BASE_VERSION}-${BRANCH_NAME}.${COMMIT_HASH}"
+            IS_RELEASE="false"
+          fi
+          
+          echo "Calculated version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is-release=$IS_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: Create git tag for releases
+        if: steps.version.outputs.is-release == 'true'
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if ! git tag -l | grep -q "^v${VERSION}$"; then
+            git tag -a "v${VERSION}" -m "Release version ${VERSION}"
+            git push origin "v${VERSION}"
+            echo "Created and pushed tag: v${VERSION}"
+          else
+            echo "Tag v${VERSION} already exists"
+          fi

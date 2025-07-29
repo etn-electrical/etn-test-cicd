@@ -1,0 +1,127 @@
+name: Handle Post-PR Events
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+      - develop
+      - 'release/**'
+
+jobs:
+  determine-action:
+    runs-on: ubuntu-latest
+    outputs:
+      merged: ${{ steps.check-merge.outputs.merged }}
+      target_branch: ${{ steps.check-merge.outputs.target_branch }}
+      source_branch: ${{ steps.check-merge.outputs.source_branch }}
+      environment: ${{ steps.set-env.outputs.environment }}
+    steps:
+      - name: Check if PR was merged
+        id: check-merge
+        run: |
+          echo "merged=${{ github.event.pull_request.merged }}" >> $GITHUB_OUTPUT
+          echo "target_branch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          echo "source_branch=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+
+      - name: Set environment based on target branch
+        id: set-env
+        run: |
+          if [[ "${{ github.event.pull_request.base.ref }}" == "main" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.pull_request.base.ref }}" == "develop" ]]; then
+            echo "environment=development" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.pull_request.base.ref }}" =~ ^release/.+ ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          else
+            echo "environment=development" >> $GITHUB_OUTPUT
+          fi
+
+  tag-release:
+    needs: determine-action
+    if: needs.determine-action.outputs.merged == 'true' && needs.determine-action.outputs.target_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version from pom.xml
+        id: get-version
+        run: |
+          VERSION=$(grep -m 1 "<version>.*</version>" pom.xml | sed 's/<version>\(.*\)<\/version>/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Tag
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a "v${{ steps.get-version.outputs.version }}" -m "Release version ${{ steps.get-version.outputs.version }}"
+          git push origin "v${{ steps.get-version.outputs.version }}"
+
+  deploy:
+    needs: [determine-action, tag-release]
+    if: needs.determine-action.outputs.merged == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: ${{ needs.determine-action.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build artifact
+        run: mvn -B clean package
+
+      - name: Deploy to ${{ env.ENVIRONMENT }}
+        run: |
+          echo "Deploying to ${{ env.ENVIRONMENT }} environment"
+          # Placeholder for actual deployment commands
+          # This would depend on your actual deployment strategy
+          # For example:
+          # - Deploy to AWS/Azure/GCP
+          # - Upload to artifact repository
+          # - Deploy to container registry
+          echo "Deployment successful"
+
+  notify:
+    needs: [determine-action, deploy]
+    if: always() && needs.determine-action.outputs.merged == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: ${{ needs.determine-action.outputs.environment }}
+      SOURCE_BRANCH: ${{ needs.determine-action.outputs.source_branch }}
+      TARGET_BRANCH: ${{ needs.determine-action.outputs.target_branch }}
+    steps:
+      - name: Notify about merge and deployment
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue_number = context.issue.number;
+            const source = "${{ env.SOURCE_BRANCH }}";
+            const target = "${{ env.TARGET_BRANCH }}";
+            const env = "${{ env.ENVIRONMENT }}";
+            
+            const deployStatus = "${{ needs.deploy.result }}" === "success" ? "✅ Successful" : "❌ Failed";
+            
+            github.rest.issues.createComment({
+              issue_number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Merge Status
+              
+              PR #${issue_number} from \`${source}\` to \`${target}\` has been merged successfully.
+              
+              ### Deployment Status to ${env}: ${deployStatus}
+              
+              Thank you for your contribution!`
+            });

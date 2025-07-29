@@ -1,0 +1,491 @@
+name: Quality Check Workflow
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version to use for the build'
+      maven-args:
+        required: false
+        type: string
+        default: 'clean test'
+        description: 'Maven arguments for building and testing'
+      version-args:
+        required: false
+        type: string
+        default: '0.0.0-SNAPSHOT'
+        description: 'Version to use for the build'
+      skip-sonar:
+        required: false
+        type: boolean
+        default: false
+        description: 'Skip SonarQube analysis'
+      skip-reports:
+        required: false
+        type: boolean
+        default: false
+        description: 'Skip generating and publishing reports'
+      context:
+        required: false
+        type: string
+        default: 'general'
+        description: 'Context of the quality check (pr, merge, release, general)'
+    outputs:
+      coverage-percentage:
+        description: 'Code coverage percentage'
+        value: ${{ jobs.test-summary.outputs.coverage }}
+      test-results:
+        description: 'Test results summary'
+        value: ${{ jobs.test-summary.outputs.results }}
+
+permissions:
+  contents: write       # Needed for checkout, tagging and releases
+  packages: write       # Needed for pushing to GHCR
+  actions: read         # Needed for workflow runs
+  pull-requests: write  # Needed for commenting on PRs
+  pages: write          # Needed for GitHub Pages
+  id-token: write       # Needed for security scanning
+  issues: read          # Needed for referencing issues
+  checks: write         # Needed for test results
+
+jobs:
+  check-pom:
+    name: Check and Update POM
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pom-updated: ${{ steps.check-changes.outputs.updated }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Create scripts directory if not exists
+        run: mkdir -p scripts
+
+      - name: Make script executable
+        run: |
+          if [ -f "scripts/check-and-update-pom.sh" ]; then
+            chmod +x scripts/check-and-update-pom.sh
+          else
+            echo "Script not found, skipping POM check"
+            exit 0
+          fi
+
+      - name: Check and update pom.xml for required plugins (temporary)
+        id: check-pom
+        run: |
+          if [ -f "scripts/check-and-update-pom.sh" ]; then
+            echo "Temporarily updating pom.xml with required plugins for this build..."
+            ./scripts/check-and-update-pom.sh
+          else
+            echo "POM check script not found, assuming plugins are present"
+          fi
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          if git diff --quiet pom.xml; then
+            echo "updated=false" >> $GITHUB_OUTPUT
+            echo "No changes needed to pom.xml"
+          else
+            echo "updated=true" >> $GITHUB_OUTPUT
+            echo "pom.xml temporarily updated with required plugins"
+          fi
+
+      - name: Upload updated pom.xml for subsequent jobs
+        if: steps.check-changes.outputs.updated == 'true'
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: updated-pom-${{ github.run_id }}
+          path: pom.xml
+          retention-days: 1
+
+  test-and-coverage:
+    name: Tests & Coverage
+    needs: check-pom
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      coverage-percentage: ${{ steps.coverage.outputs.percentage }}
+      test-count: ${{ steps.test-results.outputs.total }}
+      test-failures: ${{ steps.test-results.outputs.failures }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download updated pom.xml if available
+        if: needs.check-pom.outputs.pom-updated == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: updated-pom-${{ github.run_id }}
+          path: .
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Run tests and generate coverage
+        run: |
+          set -e
+          mvn -B ${{ inputs.maven-args }} jacoco:report
+
+      - name: Extract test results
+        id: test-results
+        run: |
+          if ls target/surefire-reports/TEST-*.xml 1> /dev/null 2>&1; then
+            TESTS=$(grep -h "tests=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+            FAILURES=$(grep -h "failures=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+            ERRORS=$(grep -h "errors=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+            SKIPPED=$(grep -h "skipped=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+            
+            echo "total=${TESTS:-0}" >> $GITHUB_OUTPUT
+            echo "failures=${FAILURES:-0}" >> $GITHUB_OUTPUT
+            echo "errors=${ERRORS:-0}" >> $GITHUB_OUTPUT
+            echo "skipped=${SKIPPED:-0}" >> $GITHUB_OUTPUT
+          else
+            echo "total=0" >> $GITHUB_OUTPUT
+            echo "failures=0" >> $GITHUB_OUTPUT
+            echo "errors=0" >> $GITHUB_OUTPUT
+            echo "skipped=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract coverage percentage
+        id: coverage
+        run: |
+          if [ -f "target/site/jacoco/jacoco.xml" ]; then
+            COVERED=$(grep -o 'covered="[0-9]*"' target/site/jacoco/jacoco.xml | awk -F'"' '{s+=$2} END {print s}')
+            MISSED=$(grep -o 'missed="[0-9]*"' target/site/jacoco/jacoco.xml | awk -F'"' '{s+=$2} END {print s}')
+            TOTAL=$((COVERED + MISSED))
+            if [ "$TOTAL" -gt 0 ]; then
+              COVERAGE=$((COVERED * 100 / TOTAL))
+              echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
+            else
+              echo "percentage=0" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "percentage=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload JaCoCo Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report-${{ github.run_id }}
+          path: target/site/jacoco/
+          retention-days: 7
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_id }}
+          path: target/surefire-reports/
+          retention-days: 7
+
+  sonarqube:
+    name: SonarQube Analysis
+    needs: [check-pom, test-and-coverage]
+    if: inputs.skip-sonar == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download updated pom.xml if available
+        if: needs.check-pom.outputs.pom-updated == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: updated-pom-${{ github.run_id }}
+          path: .
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Download JaCoCo Report
+        if: needs.test-and-coverage.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-report-${{ github.run_id }}
+          path: target/site/jacoco/
+        continue-on-error: true
+
+      - name: Generate JaCoCo Report if not available
+        if: needs.test-and-coverage.result != 'success'
+        run: |
+          echo "Generating JaCoCo report since test-and-coverage job was skipped..."
+          mvn -B ${{ inputs.maven-args }} jacoco:report
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: SonarQube Scan for Pull Request
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -e
+          mvn -B sonar:sonar \
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
+            -Dsonar.organization=${{ github.repository_owner }} \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} \
+            -Dsonar.pullrequest.branch=${{ github.head_ref }} \
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+
+      - name: SonarQube Scan for Main Branch
+        if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -e
+          mvn -B sonar:sonar \
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }} \
+            -Dsonar.organization=${{ github.repository_owner }} \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.branch.name=${{ github.ref_name }}
+
+  test-summary:
+    name: Generate Summary
+    needs: [test-and-coverage, sonarqube]
+    if: always() && needs.test-and-coverage.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      coverage: ${{ needs.test-and-coverage.outputs.coverage-percentage }}
+      results: ${{ steps.summary.outputs.results }}
+    steps:
+      - name: Generate Test Summary
+        id: summary
+        run: |
+          COVERAGE="${{ needs.test-and-coverage.outputs.coverage-percentage }}"
+          TESTS="${{ needs.test-and-coverage.outputs.test-count }}"
+          FAILURES="${{ needs.test-and-coverage.outputs.test-failures }}"
+          SONAR_STATUS="${{ needs.sonarqube.result }}"
+          
+          # Create summary
+          cat > test-summary.md << EOF
+          ### 📊 Test & Code Quality Summary
+          
+          **Build Context:** \`${{ inputs.context }}\`
+          **Version:** \`${{ inputs.version-args }}\`
+          
+          #### 🧪 Unit Test Results
+          - **Total tests:** ${TESTS}
+          - **Failures:** ${FAILURES}
+          - **Status:** ${{ needs.test-and-coverage.result == 'success' && '✅ Passed' || '❌ Failed' }}
+          
+          #### 📈 Code Coverage
+          - **Line coverage:** ${COVERAGE}%
+          - **Trend:** $([ "${COVERAGE}" -ge 80 ] && echo "🟢 Good" || [ "${COVERAGE}" -ge 60 ] && echo "🟡 Fair" || echo "🔴 Needs Improvement")
+          
+          #### 🔍 Code Quality
+          - **SonarQube:** $([ "${SONAR_STATUS}" = "success" ] && echo "✅ Passed" || [ "${SONAR_STATUS}" = "skipped" ] && echo "⏭️ Skipped" || echo "❌ Failed")
+          
+          #### 📑 Reports
+          - [📊 Test Report](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
+          $([ "${{ inputs.context }}" = "pr" ] && echo "- [🔍 SonarQube Analysis](https://sonarcloud.io/project/pull-requests-list?id=${{ github.repository_owner }}_${{ github.event.repository.name }})" || echo "- [🔍 SonarQube Project](https://sonarcloud.io/project/overview?id=${{ github.repository_owner }}_${{ github.event.repository.name }})")
+          
+          ---
+          *Generated on $(date '+%Y-%m-%d %H:%M:%S UTC')*
+          EOF
+          
+          # Set outputs
+          echo "results=Tests: ${TESTS}, Coverage: ${COVERAGE}%" >> $GITHUB_OUTPUT
+          
+          cat test-summary.md
+
+      - name: Find Comment
+        uses: peter-evans/find-comment@v3
+        if: github.event_name == 'pull_request'
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Test & Code Quality Summary
+
+      - name: Create or Update PR Comment
+        uses: peter-evans/create-or-update-comment@v4
+        if: github.event_name == 'pull_request'
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: test-summary.md
+          edit-mode: replace
+
+  publish-reports:
+    name: Publish Reports
+    needs: [test-and-coverage, sonarqube]
+    if: inputs.skip-reports == false && (inputs.context == 'merge' || inputs.context == 'release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Download JaCoCo Report
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-report-${{ github.run_id }}
+          path: target/site/jacoco/
+
+      - name: Download Test Results
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results-${{ github.run_id }}
+          path: target/surefire-reports/
+
+      - name: Generate Site Reports
+        run: |
+          mvn -B surefire-report:report-only site:site -DgenerateReports=false || true
+
+      - name: Prepare Reports Directory
+        run: |
+          mkdir -p reports
+          [ -d target/site ] && cp -r target/site/* reports/ || true
+          
+          # Create enhanced index page
+          cat > reports/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>ETN SC Client - Test & Quality Reports</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #24292e; background: #f6f8fa; }
+              .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+              .header { background: linear-gradient(135deg, #0366d6, #0256cc); color: white; padding: 2rem; border-radius: 8px; margin-bottom: 2rem; text-align: center; }
+              .header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+              .header p { font-size: 1.1rem; opacity: 0.9; }
+              .build-info { background: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+              .build-info h2 { color: #0366d6; margin-bottom: 1rem; }
+              .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+              .info-item { padding: 0.5rem; background: #f6f8fa; border-radius: 4px; }
+              .info-item strong { color: #0366d6; }
+              .reports-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
+              .report-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s; }
+              .report-card:hover { transform: translateY(-2px); }
+              .report-header { padding: 1.5rem; background: linear-gradient(135deg, #28a745, #20a339); color: white; }
+              .report-header h3 { font-size: 1.3rem; margin-bottom: 0.5rem; }
+              .report-body { padding: 1.5rem; }
+              .report-body ul { list-style: none; }
+              .report-body li { margin-bottom: 0.8rem; }
+              .report-body a { color: #0366d6; text-decoration: none; padding: 0.5rem 0; display: block; border-radius: 4px; transition: background 0.2s; }
+              .report-body a:hover { background: #f6f8fa; text-decoration: underline; }
+              .footer { text-align: center; margin-top: 3rem; padding: 2rem; color: #586069; font-size: 0.9rem; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>ETN SC Client</h1>
+                <p>Test & Quality Reports Dashboard</p>
+              </div>
+              
+              <div class="build-info">
+                <h2>Build Information</h2>
+                <div class="info-grid">
+                  <div class="info-item"><strong>Branch:</strong> ${GITHUB_REF_NAME}</div>
+                  <div class="info-item"><strong>Commit:</strong> ${GITHUB_SHA:0:8}</div>
+                  <div class="info-item"><strong>Build:</strong> #${GITHUB_RUN_NUMBER}</div>
+                  <div class="info-item"><strong>Date:</strong> $(date '+%Y-%m-%d %H:%M')</div>
+                </div>
+              </div>
+
+              <div class="reports-grid">
+                <div class="report-card">
+                  <div class="report-header">
+                    <h3>🧪 Test Reports</h3>
+                    <p>Unit test results and coverage analysis</p>
+                  </div>
+                  <div class="report-body">
+                    <ul>
+                      <li><a href="./surefire-report.html">📊 Unit Test Report</a></li>
+                      <li><a href="./jacoco/index.html">📈 Code Coverage (JaCoCo)</a></li>
+                      <li><a href="./jacoco/jacoco.xml">📄 Coverage XML Report</a></li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="report-card">
+                  <div class="report-header" style="background: linear-gradient(135deg, #6f42c1, #5a32a3);">
+                    <h3>📚 Documentation</h3>
+                    <p>API documentation and project info</p>
+                  </div>
+                  <div class="report-body">
+                    <ul>
+                      <li><a href="./apidocs/index.html">📖 API Documentation</a></li>
+                      <li><a href="./project-info.html">ℹ️ Project Information</a></li>
+                      <li><a href="./dependencies.html">📦 Dependencies Report</a></li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="footer">
+                <p>Generated by ETN SC Client CI/CD Pipeline</p>
+                <p>For questions or support, contact the development team</p>
+              </div>
+            </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload Reports to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: reports
+          target-folder: reports/${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          clean: false
+          commit-message: "docs: update reports for ${{ github.ref_name }} (${{ inputs.context }})"
+          silent: false
+

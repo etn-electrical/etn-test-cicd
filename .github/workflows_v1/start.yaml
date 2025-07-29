@@ -1,0 +1,1034 @@
+name: ETN SC Client CI/CD Pipeline
+
+# on:
+#   push:
+#     branches: ['main']  # Only trigger on main branch pushes
+#   pull_request:
+#     types: [opened, synchronize, reopened, closed]
+#     branches: [main, develop, release/*, hotfix/*]  # PRs targeting these branches
+#   workflow_dispatch:
+
+# Set concurrency to prevent conflicts and cancel redundant runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Set permissions for all jobs in this workflow
+permissions:
+  contents: write       # Needed for checkout, tagging and releases
+  packages: write       # Needed for pushing to GHCR
+  actions: read         # Needed for workflow runs
+  pull-requests: write  # Needed for commenting on PRs
+  pages: write          # Needed for GitHub Pages
+  id-token: write       # Needed for security scanning
+  issues: read          # Needed for referencing issues
+  checks: write         # Needed for test results
+
+jobs:
+  prepare:
+    name: Prepare Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      environment: ${{ steps.determine-env.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Environment
+        id: determine-env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" =~ refs/heads/release/.* ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=development" >> $GITHUB_OUTPUT
+          else
+            echo "environment=development" >> $GITHUB_OUTPUT
+          fi
+
+  version-management:
+    name: Version Management
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    uses: ./.github/workflows/version.yaml
+    with:
+      java-version: '17'
+    secrets: inherit
+    permissions: write-all
+
+  # Quality checks for Pull Requests (before merge)
+  pr-quality-check:
+    name: PR Quality Check
+    needs: [prepare]
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    uses: ./.github/workflows/quality.yaml
+    with:
+      java-version: '17'
+      maven-args: 'clean test'
+      version-args: 'PR-${{ github.event.pull_request.number }}'
+      context: 'pr'
+      skip-reports: true
+    secrets: inherit
+    permissions: write-all
+
+  build-and-test:
+    name: Build and Test
+    needs: [prepare, version-management]
+    if: always() && needs.prepare.result == 'success'
+    uses: ./.github/workflows/build.yaml
+    with:
+      java-version: '17'
+      maven-args: 'clean verify'
+      version-args: ${{ needs.version-management.outputs.version || 'PR-SNAPSHOT' }}
+    secrets: inherit
+    permissions: write-all
+
+  # Quality tracking for main branches (after merge)
+  post-merge-quality:
+    name: Post-Merge Quality
+    needs: [prepare, version-management, build-and-test]
+    if: github.event_name == 'push' && contains(fromJson('["main", "develop"]'), github.ref_name)
+    uses: ./.github/workflows/quality.yaml
+    with:
+      java-version: '17'
+      maven-args: 'clean test'
+      version-args: ${{ needs.version-management.outputs.version }}
+      context: 'merge'
+      skip-reports: false
+    secrets: inherit
+    permissions: write-all
+
+  # Quality gate for releases
+  release-quality-gate:
+    name: Release Quality Gate
+    needs: [prepare, version-management, build-and-test]
+    if: startsWith(github.ref, 'refs/heads/release/')
+    uses: ./.github/workflows/quality.yaml
+    with:
+      java-version: '17'
+      maven-args: 'clean test'
+      version-args: ${{ needs.version-management.outputs.version }}
+      context: 'release'
+      skip-reports: false
+    secrets: inherit
+    permissions: write-all
+
+#  code-quality:
+#    name: Code Quality
+#    needs: [prepare, build-and-test]
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 30
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0
+#
+#      - name: Set up JDK
+#        uses: actions/setup-java@v4
+#        with:
+#          distribution: 'temurin'
+#          java-version: '17'
+#          cache: maven
+#
+#      - name: Generate JaCoCo Report
+#        run: |
+#          set -e # Exit immediately if a command exits with non-zero status
+#          mvn -B jacoco:report
+#
+#      - name: Generate Test Reports
+#        if: always() # Generate reports even if tests fail
+#        run: |
+#          set -e # Exit immediately if a command exits with non-zero status
+#          mvn -B surefire-report:report-only || echo "::warning::Failed to generate surefire report"
+#          mvn -B site:site -DgenerateReports=false || echo "::warning::Failed to generate site"
+#
+#      - name: Upload JaCoCo Report
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: jacoco-report
+#          path: target/site/jacoco/
+#          retention-days: 5
+#
+#      - name: Upload Test Results
+#        if: always() # Upload test results even if tests fail
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: test-results
+#          path: target/surefire-reports/
+#          retention-days: 5
+#
+#      # Publish Reports to GitHub Pages
+#      - name: Prepare Reports Directory
+#        run: |
+#          mkdir -p reports
+#          cp -r target/site/* reports/
+#          # Add index page to navigate between reports
+#          cat > reports/index.html << EOF
+#          <!DOCTYPE html>
+#          <html>
+#          <head>
+#            <title>ETN SC Client - Test & Quality Reports</title>
+#            <style>
+#              body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; color: #333; }
+#              h1 { color: #0366d6; border-bottom: 1px solid #eaecef; padding-bottom: 10px; }
+#              ul { list-style-type: none; padding: 0; }
+#              li { margin-bottom: 10px; }
+#              a { color: #0366d6; text-decoration: none; }
+#              a:hover { text-decoration: underline; }
+#              .report-section { background-color: #f6f8fa; border-radius: 5px; padding: 15px; margin-bottom: 20px; }
+#              .build-info { font-size: 0.85em; color: #666; margin-bottom: 20px; }
+#            </style>
+#          </head>
+#          <body>
+#            <h1>ETN SC Client - Test & Quality Reports</h1>
+#            <div class="build-info">
+#              <p>Branch: ${GITHUB_REF#refs/heads/}</p>
+#              <p>Commit: ${GITHUB_SHA}</p>
+#              <p>Build Date: $(date)</p>
+#            </div>
+#
+#            <div class="report-section">
+#              <h2>Test Reports</h2>
+#              <ul>
+#                <li><a href="./surefire-report.html">Unit Test Report</a></li>
+#                <li><a href="./jacoco/index.html">Code Coverage (JaCoCo)</a></li>
+#              </ul>
+#            </div>
+#
+#            <div class="report-section">
+#              <h2>Code Quality</h2>
+#              <ul>
+#                <li><a href="./apidocs/index.html">API Documentation</a> (if available)</li>
+#              </ul>
+#            </div>
+#          </body>
+#          </html>
+#          EOF
+#
+#      - name: Upload Reports to GitHub Pages
+#        uses: JamesIves/github-pages-deploy-action@v4
+#        with:
+#          folder: reports
+#          target-folder: reports/${{ github.ref_name }}
+#          token: ${{ secrets.GITHUB_TOKEN }}
+#          branch: gh-pages
+#          clean: false
+#          # The following settings ensure proper handling of permissions
+#          commit-message: "docs: update reports for ${{ github.ref_name }}"
+#          silent: false
+#
+#      - name: SonarQube Analysis
+#        if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+#        env:
+#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#        run: |
+#          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+#            # Add PR specific parameters for SonarQube
+#            mvn -B sonar:sonar \
+#              -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+#              -Dsonar.projectKey=SZCPC_etn_sc_client \
+#              -Dsonar.projectName="ETN SC Client" \
+#              -Dsonar.login=$SONAR_TOKEN \
+#              -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} \
+#              -Dsonar.pullrequest.branch=${{ github.head_ref }} \
+#              -Dsonar.pullrequest.base=${{ github.base_ref }}
+#          else
+#            mvn -B sonar:sonar \
+#              -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+#              -Dsonar.projectKey=SZCPC_etn_sc_client \
+#              -Dsonar.projectName="ETN SC Client" \
+#              -Dsonar.login=$SONAR_TOKEN
+#          fi
+#
+#          # Extract key metrics to a JSON file for the release notes
+#          mkdir -p target/sonar
+#          if [ -n "$SONAR_TOKEN" ]; then
+#            echo "Fetching SonarQube metrics..."
+#            PROJECT_KEY="SZCPC_etn_sc_client"
+#            METRICS="bugs,vulnerabilities,code_smells,duplicated_lines_density,coverage"
+#
+#            curl -s -u "${SONAR_TOKEN}:" \
+#              "${{ secrets.SONAR_HOST_URL }}/api/measures/component?component=${PROJECT_KEY}&metricKeys=${METRICS}" \
+#              | jq '.component.measures' > target/sonar/sonar-report.json
+#          fi
+#
+#      - name: Upload SonarQube Report
+#        if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: sonar-report
+#          path: target/sonar/
+#          retention-days: 5
+#
+#      - name: Generate Test Summary
+#        if: github.event_name == 'pull_request'
+#        id: test-summary
+#        run: |
+#          echo "### Test & Code Quality Summary" > test-summary.md
+#          echo "" >> test-summary.md
+#
+#          # Extract test results summary
+#          if [ -f "target/surefire-reports/TEST-*.xml" ]; then
+#            TESTS=$(grep -h "tests=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+#            FAILURES=$(grep -h "failures=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+#            ERRORS=$(grep -h "errors=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+#            SKIPPED=$(grep -h "skipped=" target/surefire-reports/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+#
+#            echo "#### Unit Test Results" >> test-summary.md
+#            echo "- Total tests: ${TESTS}" >> test-summary.md
+#            echo "- Failures: ${FAILURES}" >> test-summary.md
+#            echo "- Errors: ${ERRORS}" >> test-summary.md
+#            echo "- Skipped: ${SKIPPED}" >> test-summary.md
+#            echo "" >> test-summary.md
+#          else
+#            echo "#### Unit Test Results" >> test-summary.md
+#            echo "- No test results found" >> test-summary.md
+#            echo "" >> test-summary.md
+#          fi
+#
+#          # Extract JaCoCo coverage data
+#          if [ -f "target/site/jacoco/jacoco.xml" ]; then
+#            COVERED=$(grep -o 'covered="[0-9]*"' target/site/jacoco/jacoco.xml | awk -F'"' '{s+=$2} END {print s}')
+#            MISSED=$(grep -o 'missed="[0-9]*"' target/site/jacoco/jacoco.xml | awk -F'"' '{s+=$2} END {print s}')
+#            TOTAL=$((COVERED + MISSED))
+#            if [ "$TOTAL" -gt 0 ]; then
+#              COVERAGE=$((COVERED * 100 / TOTAL))
+#              echo "#### Code Coverage" >> test-summary.md
+#              echo "- Overall line coverage: ${COVERAGE}%" >> test-summary.md
+#              echo "" >> test-summary.md
+#            fi
+#          fi
+#
+#          echo "#### Reports" >> test-summary.md
+#          echo "- [Full Test Report](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})" >> test-summary.md
+#          echo "- [Generated Reports](https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/reports/${GITHUB_HEAD_REF})" >> test-summary.md
+#
+#          cat test-summary.md
+#          echo "summary=$(cat test-summary.md)" >> $GITHUB_OUTPUT
+#
+#      - name: Find Comment
+#        uses: peter-evans/find-comment@v3
+#        if: github.event_name == 'pull_request'
+#        id: find-comment
+#        with:
+#          issue-number: ${{ github.event.pull_request.number }}
+#          comment-author: 'github-actions[bot]'
+#          body-includes: Test & Code Quality Summary
+#
+#      - name: Create or Update Comment
+#        uses: peter-evans/create-or-update-comment@v4
+#        if: github.event_name == 'pull_request'
+#        with:
+#          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+#          issue-number: ${{ github.event.pull_request.number }}
+#          body: ${{ steps.test-summary.outputs.summary }}
+#          edit-mode: replace
+#
+#  build-docker:
+#    name: Build and Push Docker Image
+#    needs: [prepare, build-and-test, code-quality]
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 30
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0
+#
+#      - name: Download artifact
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: app-jar
+#          path: target/
+#
+#      - name: Set up Docker Buildx
+#        uses: docker/setup-buildx-action@v2.7.0
+#
+#      - name: Login to GitHub Container Registry
+#        uses: docker/login-action@v2
+#        with:
+#          registry: ghcr.io
+#          username: ${{ github.actor }}
+#          password: ${{ secrets.GITHUB_TOKEN }}
+#          # Explicit logout after the job completes
+#          logout: true
+#
+#      - name: Build and Push Docker image
+#        uses: docker/build-push-action@v4.1.1
+#        with:
+#          context: .
+#          push: true
+#          tags: |
+#            ghcr.io/etn-electrical/szcpc_etn_sc_client:${{ needs.build-and-test.outputs.new-version }}
+#            ghcr.io/etn-electrical/szcpc_etn_sc_client:latest
+#
+#      - name: Scan Docker image for vulnerabilities
+#        uses: aquasecurity/trivy-action@master
+#        with:
+#          image-ref: 'ghcr.io/etn-electrical/szcpc_etn_sc_client:${{ needs.build-and-test.outputs.new-version }}'
+#          format: 'table'
+#          exit-code: '0'  # Don't fail the build, just report
+#          ignore-unfixed: true
+#          severity: 'CRITICAL,HIGH'
+#
+#  deploy-development:
+#    name: Deploy to Development
+#    needs: [prepare, build-docker, build-and-test]
+#    if: needs.prepare.outputs.environment == 'development' || github.event_name == 'pull_request'
+#    runs-on: self-hosted
+#    timeout-minutes: 20
+#    environment:
+#      name: development
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Deploy with Docker Compose
+#        env:
+#          IMAGE_TAG: ${{ needs.build-and-test.outputs.new-version }}
+#        run: |
+#          echo "IMAGE=ghcr.io/etn-electrical/szcpc_etn_sc_client:${IMAGE_TAG}" > .env
+#          docker-compose -f docker-compose.dev.yml pull
+#          docker-compose -f docker-compose.dev.yml up -d
+#
+#      - name: Verify Deployment
+#        run: |
+#          echo "Waiting for application to start..."
+#          # More robust health check
+#          max_attempts=10
+#          counter=0
+#          while [ $counter -lt $max_attempts ]
+#          do
+#            # Check if container is running
+#            if docker ps | grep -q szcpc_etn_sc_client; then
+#              # Try health endpoint if available (adjust URL as needed)
+#              if curl -s http://localhost:8080/health 2>/dev/null | grep -q "UP"; then
+#                echo "Service is healthy!"
+#                exit 0
+#              elif [ $counter -ge 3 ]; then
+#                # After 3 attempts just verify the container is running
+#                echo "Container is running, health endpoint not available or not ready yet"
+#                exit 0
+#              fi
+#            fi
+#            echo "Waiting for service to become healthy... (attempt $counter of $max_attempts)"
+#            sleep 10
+#            counter=$((counter+1))
+#          done
+#
+#          # Final check - if container is running consider it success even without health check
+#          if docker ps | grep -q szcpc_etn_sc_client; then
+#            echo "Container is running but health check failed. Continuing anyway."
+#            exit 0
+#          else
+#            echo "Service failed to start within timeout!"
+#            exit 1
+#          fi
+#
+#  deploy-staging:
+#    name: Deploy to Staging
+#    needs: [prepare, build-docker, build-and-test]
+#    if: needs.prepare.outputs.environment == 'staging'
+#    runs-on: self-hosted
+#    timeout-minutes: 20
+#    environment:
+#      name: staging
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Deploy with Docker Compose
+#        env:
+#          IMAGE_TAG: ${{ needs.build-and-test.outputs.new-version }}
+#        run: |
+#          echo "IMAGE=ghcr.io/etn-electrical/szcpc_etn_sc_client:${IMAGE_TAG}" > .env
+#          docker-compose -f docker-compose.staging.yml pull
+#          docker-compose -f docker-compose.staging.yml up -d
+#
+#      - name: Verify Deployment
+#        run: |
+#          echo "Waiting for application to start..."
+#          # More robust health check
+#          max_attempts=10
+#          counter=0
+#          while [ $counter -lt $max_attempts ]
+#          do
+#            # Check if container is running
+#            if docker ps | grep -q szcpc_etn_sc_client; then
+#              # Try health endpoint if available (adjust URL as needed)
+#              if curl -s http://localhost:8080/health 2>/dev/null | grep -q "UP"; then
+#                echo "Service is healthy!"
+#                exit 0
+#              elif [ $counter -ge 3 ]; then
+#                # After 3 attempts just verify the container is running
+#                echo "Container is running, health endpoint not available or not ready yet"
+#                exit 0
+#              fi
+#            fi
+#            echo "Waiting for service to become healthy... (attempt $counter of $max_attempts)"
+#            sleep 10
+#            counter=$((counter+1))
+#          done
+#
+#          # Final check - if container is running consider it success even without health check
+#          if docker ps | grep -q szcpc_etn_sc_client; then
+#            echo "Container is running but health check failed. Continuing anyway."
+#            exit 0
+#          else
+#            echo "Service failed to start within timeout!"
+#            exit 1
+#          fi
+#
+#  deploy-production:
+#    name: Deploy to Production
+#    needs: [prepare, build-docker, build-and-test]
+#    if: needs.prepare.outputs.environment == 'production'
+#    runs-on: self-hosted
+#    timeout-minutes: 20
+#    environment:
+#      name: production
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Deploy with Docker Compose
+#        env:
+#          IMAGE_TAG: ${{ needs.build-and-test.outputs.new-version }}
+#        run: |
+#          echo "IMAGE=ghcr.io/etn-electrical/szcpc_etn_sc_client:${IMAGE_TAG}" > .env
+#          docker-compose -f docker-compose.prod.yml pull
+#          docker-compose -f docker-compose.prod.yml up -d
+#
+#      - name: Verify Deployment
+#        run: |
+#          echo "Waiting for application to start..."
+#          # More robust health check
+#          max_attempts=10
+#          counter=0
+#          while [ $counter -lt $max_attempts ]
+#          do
+#            # Check if container is running
+#            if docker ps | grep -q szcpc_etn_sc_client; then
+#              # Try health endpoint if available (adjust URL as needed)
+#              if curl -s http://localhost:8080/health 2>/dev/null | grep -q "UP"; then
+#                echo "Service is healthy!"
+#                exit 0
+#              elif [ $counter -ge 3 ]; then
+#                # After 3 attempts just verify the container is running
+#                echo "Container is running, health endpoint not available or not ready yet"
+#                exit 0
+#              fi
+#            fi
+#            echo "Waiting for service to become healthy... (attempt $counter of $max_attempts)"
+#            sleep 10
+#            counter=$((counter+1))
+#          done
+#
+#          # Final check - if container is running consider it success even without health check
+#          if docker ps | grep -q szcpc_etn_sc_client; then
+#            echo "Container is running but health check failed. Continuing anyway."
+#            exit 0
+#          else
+#            echo "Service failed to start within timeout!"
+#            exit 1
+#          fi
+#
+#  create-release:
+#    name: Create GitHub Release
+#    needs: [prepare, build-and-test, code-quality, build-docker]
+#    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v3
+#
+#      - name: Download build artifact
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: app-jar
+#          path: artifacts/
+#
+#      - name: Download JaCoCo Report
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: jacoco-report
+#          path: reports/jacoco/
+#
+#      - name: Create Release
+#        uses: softprops/action-gh-release@v1
+#        with:
+#          name: Release ${{ needs.build-and-test.outputs.new-version }}
+#          tag_name: v${{ needs.build-and-test.outputs.new-version }}
+#          draft: false
+#          prerelease: ${{ needs.prepare.outputs.environment != 'production' }}
+#          files: |
+#            artifacts/*.jar
+#            reports/jacoco/**
+#          generate_release_notes: true
+#          discussion_category_name: "Releases"
+#          fail_on_unmatched_files: false
+#        env:
+#          # Using GITHUB_TOKEN with proper repository permissions
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#
+#  generate-release-notes:
+#    name: Generate Release Notes
+#    needs: [prepare, build-and-test, deploy-production]
+#    if: github.ref == 'refs/heads/main' && needs.deploy-production.result == 'success'
+#    runs-on: ubuntu-latest
+#    outputs:
+#      release-url: ${{ steps.create-release-notes.outputs.release-url }}
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v3
+#        with:
+#          fetch-depth: 0  # Important for accessing git history
+#
+#      - name: Get previous tag
+#        id: get-previous-tag
+#        run: |
+#          # Get the latest tag excluding the new one we just created
+#          PREVIOUS_TAG=$(git tag --sort=-creatordate | grep -v "v${{ needs.build-and-test.outputs.new-version }}" | head -n 1)
+#          echo "previous-tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
+#          echo "Previous tag: ${PREVIOUS_TAG}"
+#
+#      - name: Generate changelog
+#        id: github-changelog
+#        if: steps.get-previous-tag.outputs.previous-tag != ''
+#        uses: mikepenz/release-changelog-builder-action@v3
+#        with:
+#          configuration: |
+#            {
+#              "categories": [
+#                {
+#                  "title": "## 🚀 Features",
+#                  "labels": ["feature", "enhancement", "feat"]
+#                },
+#                {
+#                  "title": "## 🐛 Bug Fixes",
+#                  "labels": ["fix", "bug"]
+#                },
+#                {
+#                  "title": "## 📝 Documentation",
+#                  "labels": ["documentation", "docs"]
+#                },
+#                {
+#                  "title": "## 🔧 Maintenance",
+#                  "labels": ["chore", "refactor", "perf", "test", "build", "ci"]
+#                }
+#              ],
+#              "template": "#{{CHANGELOG}}\n\n<details>\n<summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
+#              "pr_template": "- #{{TITLE}} (#{{NUMBER}})",
+#              "empty_template": "No changes detected",
+#              "sort": {
+#                "order": "ASC",
+#                "on_property": "mergedAt"
+#              }
+#            }
+#          fromTag: ${{ steps.get-previous-tag.outputs.previous-tag }}
+#          toTag: v${{ needs.build-and-test.outputs.new-version }}
+#          token: ${{ secrets.GITHUB_TOKEN }}
+#
+#      - name: Download test and scan reports
+#        uses: actions/download-artifact@v4
+#        with:
+#          path: ./release-artifacts
+#
+#      - name: Extract test metrics
+#        id: test-metrics
+#        run: |
+#          # Set defaults
+#          echo "total_tests=0" >> $GITHUB_OUTPUT
+#          echo "passed_tests=0" >> $GITHUB_OUTPUT
+#          echo "failed_tests=0" >> $GITHUB_OUTPUT
+#          echo "code_coverage=N/A" >> $GITHUB_OUTPUT
+#          echo "bugs=N/A" >> $GITHUB_OUTPUT
+#          echo "vulnerabilities=N/A" >> $GITHUB_OUTPUT
+#          echo "code_smells=N/A" >> $GITHUB_OUTPUT
+#          echo "duplications=N/A" >> $GITHUB_OUTPUT
+#          echo "bugs_trend=➖" >> $GITHUB_OUTPUT
+#          echo "vulnerabilities_trend=➖" >> $GITHUB_OUTPUT
+#          echo "code_smells_trend=➖" >> $GITHUB_OUTPUT
+#          echo "coverage_trend=➖" >> $GITHUB_OUTPUT
+#
+#          # Process test results if they exist
+#          if [ -d "./release-artifacts/test-results" ]; then
+#            if ls ./release-artifacts/test-results/TEST-*.xml 1> /dev/null 2>&1; then
+#              TESTS=$(grep -h "tests=" ./release-artifacts/test-results/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+#              FAILURES=$(grep -h "failures=" ./release-artifacts/test-results/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+#              ERRORS=$(grep -h "errors=" ./release-artifacts/test-results/TEST-*.xml | awk -F'"' '{s+=$2} END {print s}')
+#              PASSED=$((TESTS - FAILURES - ERRORS))
+#
+#              echo "total_tests=$TESTS" >> $GITHUB_OUTPUT
+#              echo "passed_tests=$PASSED" >> $GITHUB_OUTPUT
+#              echo "failed_tests=$((FAILURES + ERRORS))" >> $GITHUB_OUTPUT
+#            fi
+#          fi
+#
+#          # Process JaCoCo coverage if it exists
+#          if [ -f "./release-artifacts/jacoco-report/jacoco.xml" ]; then
+#            COVERED=$(grep -o 'covered="[0-9]*"' ./release-artifacts/jacoco-report/jacoco.xml | awk -F'"' '{s+=$2} END {print s}')
+#            MISSED=$(grep -o 'missed="[0-9]*"' ./release-artifacts/jacoco-report/jacoco.xml | awk -F'"' '{s+=$2} END {print s}')
+#            TOTAL=$((COVERED + MISSED))
+#            if [ "$TOTAL" -gt 0 ]; then
+#              COVERAGE=$((COVERED * 100 / TOTAL))
+#              echo "code_coverage=$COVERAGE" >> $GITHUB_OUTPUT
+#            fi
+#          fi
+#
+#          # Extract SonarQube metrics if available
+#          if [ -d "./release-artifacts/sonar-report" ]; then
+#            if [ -f "./release-artifacts/sonar-report/sonar-report.json" ]; then
+#              # Use jq if available, otherwise use grep and sed
+#              if command -v jq &> /dev/null; then
+#                BUGS=$(jq -r '.[] | select(.metricKey=="bugs") | .metricValue' ./release-artifacts/sonar-report/sonar-report.json)
+#                VULNERABILITIES=$(jq -r '.[] | select(.metricKey=="vulnerabilities") | .metricValue' ./release-artifacts/sonar-report/sonar-report.json)
+#                CODE_SMELLS=$(jq -r '.[] | select(.metricKey=="code_smells") | .metricValue' ./release-artifacts/sonar-report/sonar-report.json)
+#                DUPLICATIONS=$(jq -r '.[] | select(.metricKey=="duplicated_lines_density") | .metricValue' ./release-artifacts/sonar-report/sonar-report.json)
+#                COVERAGE=$(jq -r '.[] | select(.metricKey=="coverage") | .metricValue' ./release-artifacts/sonar-report/sonar-report.json)
+#
+#                if [ -n "$BUGS" ]; then echo "bugs=$BUGS" >> $GITHUB_OUTPUT; fi
+#                if [ -n "$VULNERABILITIES" ]; then echo "vulnerabilities=$VULNERABILITIES" >> $GITHUB_OUTPUT; fi
+#                if [ -n "$CODE_SMELLS" ]; then echo "code_smells=$CODE_SMELLS" >> $GITHUB_OUTPUT; fi
+#                if [ -n "$DUPLICATIONS" ]; then echo "duplications=${DUPLICATIONS}%" >> $GITHUB_OUTPUT; fi
+#                if [ -n "$COVERAGE" ]; then echo "code_coverage=$COVERAGE" >> $GITHUB_OUTPUT; fi
+#
+#                # Try to fetch previous metrics for trend calculation
+#                if [ -n "${{ steps.get-previous-tag.outputs.previous-tag }}" ]; then
+#                  echo "Calculating trends compared to previous release..."
+#
+#                  # Get the last release tag
+#                  PREV_TAG="${{ steps.get-previous-tag.outputs.previous-tag }}"
+#
+#                  # Try to download previous metrics from GitHub release assets
+#                  mkdir -p ./previous-metrics
+#                  curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+#                    -H "Accept: application/vnd.github.v3.raw" \
+#                    -o ./previous-metrics/sonar-report.json \
+#                    "https://api.github.com/repos/${{ github.repository }}/releases/tags/${PREV_TAG}/assets/sonar-metrics.json" || true
+#
+#                  if [ -f "./previous-metrics/sonar-report.json" ]; then
+#                    PREV_BUGS=$(jq -r '.[] | select(.metricKey=="bugs") | .metricValue' ./previous-metrics/sonar-report.json)
+#                    PREV_VULNERABILITIES=$(jq -r '.[] | select(.metricKey=="vulnerabilities") | .metricValue' ./previous-metrics/sonar-report.json)
+#                    PREV_CODE_SMELLS=$(jq -r '.[] | select(.metricKey=="code_smells") | .metricValue' ./previous-metrics/sonar-report.json)
+#                    PREV_COVERAGE=$(jq -r '.[] | select(.metricKey=="coverage") | .metricValue' ./previous-metrics/sonar-report.json)
+#
+#                    # Calculate trends (lower is better for bugs, vulnerabilities, code smells)
+#                    if [ -n "$PREV_BUGS" ] && [ -n "$BUGS" ]; then
+#                      if (( BUGS < PREV_BUGS )); then
+#                        echo "bugs_trend=🔽 Improved" >> $GITHUB_OUTPUT
+#                      elif (( BUGS > PREV_BUGS )); then
+#                        echo "bugs_trend=🔼 Increased" >> $GITHUB_OUTPUT
+#                      else
+#                        echo "bugs_trend=➖ No change" >> $GITHUB_OUTPUT
+#                      fi
+#                    fi
+#
+#                    if [ -n "$PREV_VULNERABILITIES" ] && [ -n "$VULNERABILITIES" ]; then
+#                      if (( VULNERABILITIES < PREV_VULNERABILITIES )); then
+#                        echo "vulnerabilities_trend=🔽 Improved" >> $GITHUB_OUTPUT
+#                      elif (( VULNERABILITIES > PREV_VULNERABILITIES )); then
+#                        echo "vulnerabilities_trend=🔼 Increased" >> $GITHUB_OUTPUT
+#                      else
+#                        echo "vulnerabilities_trend=➖ No change" >> $GITHUB_OUTPUT
+#                      fi
+#                    fi
+#
+#                    if [ -n "$PREV_CODE_SMELLS" ] && [ -n "$CODE_SMELLS" ]; then
+#                      if (( CODE_SMELLS < PREV_CODE_SMELLS )); then
+#                        echo "code_smells_trend=🔽 Improved" >> $GITHUB_OUTPUT
+#                      elif (( CODE_SMELLS > PREV_CODE_SMELLS )); then
+#                        echo "code_smells_trend=🔼 Increased" >> $GITHUB_OUTPUT
+#                      else
+#                        echo "code_smells_trend=➖ No change" >> $GITHUB_OUTPUT
+#                      fi
+#                    fi
+#
+#                    # For coverage, higher is better
+#                    if [ -n "$PREV_COVERAGE" ] && [ -n "$COVERAGE" ]; then
+#                      if (( COVERAGE > PREV_COVERAGE )); then
+#                        echo "coverage_trend=🔼 Improved" >> $GITHUB_OUTPUT
+#                      elif (( COVERAGE < PREV_COVERAGE )); then
+#                        echo "coverage_trend=🔽 Decreased" >> $GITHUB_OUTPUT
+#                      else
+#                        echo "coverage_trend=➖ No change" >> $GITHUB_OUTPUT
+#                      fi
+#                    fi
+#                  fi
+#                fi
+#              else
+#                # Fallback without jq (less reliable)
+#                echo "SonarQube metrics extraction requires jq. Install it for better results." >&2
+#              fi
+#            fi
+#          fi
+#
+#      - name: Create release notes file
+#        id: create-release-notes
+#        run: |
+#          # Start with a nice header
+#          cat > RELEASE_NOTES.md << EOF
+#          # 🚀 ETN SC Client - Release ${{ needs.build-and-test.outputs.new-version }}
+#
+#          ## 📊 Release Summary
+#
+#          **Version:** \`${{ needs.build-and-test.outputs.new-version }}\`
+#          **Release Date:** $(date +"%B %d, %Y")
+#          **Deployment Status:** ✅ Successfully deployed to Production
+#
+#          ---
+#
+#          ## 📈 Quality Metrics
+#
+#          ### Test Results
+#
+#          | Metric | Value |
+#          | ------ | ----- |
+#          | Tests Executed | ${{ steps.test-metrics.outputs.total_tests }} |
+#          | Tests Passed | ${{ steps.test-metrics.outputs.passed_tests }} |
+#          | Tests Failed | ${{ steps.test-metrics.outputs.failed_tests }} |
+#          | Code Coverage | ${{ steps.test-metrics.outputs.code_coverage }}% |
+#
+#          #### Coverage Visual
+#
+#          \`\`\`
+#          $(if [[ "${{ steps.test-metrics.outputs.code_coverage }}" != "N/A" && ${{ steps.test-metrics.outputs.code_coverage }} -ge 0 && ${{ steps.test-metrics.outputs.code_coverage }} -le 100 ]]; then
+#            FILLED=$(( ${{ steps.test-metrics.outputs.code_coverage }} * 20 / 100 ))
+#            EMPTY=$(( 20 - FILLED ))
+#            BAR="$(printf '%0.s█' $(seq 1 $FILLED))$(printf '%0.s░' $(seq 1 $EMPTY))"
+#            echo "$BAR ${{ steps.test-metrics.outputs.code_coverage }}%"
+#          else
+#            echo "No coverage data available"
+#          fi)
+#          \`\`\`
+#
+#          ### Code Quality (SonarQube)
+#
+#          | Metric | Value | Trend |
+#          | ------ | ----- | ----- |
+#          | Bugs | ${{ steps.test-metrics.outputs.bugs }} | ${{ steps.test-metrics.outputs.bugs_trend }} |
+#          | Vulnerabilities | ${{ steps.test-metrics.outputs.vulnerabilities }} | ${{ steps.test-metrics.outputs.vulnerabilities_trend }} |
+#          | Code Smells | ${{ steps.test-metrics.outputs.code_smells }} | ${{ steps.test-metrics.outputs.code_smells_trend }} |
+#          | Duplication | ${{ steps.test-metrics.outputs.duplications }} | ${{ steps.test-metrics.outputs.duplications_trend || '➖' }} |
+#          | Coverage | ${{ steps.test-metrics.outputs.code_coverage }}% | ${{ steps.test-metrics.outputs.coverage_trend }} |
+#
+#          ---
+#
+#          ## 📝 Changes Since ${{ steps.get-previous-tag.outputs.previous-tag || 'Initial Release' }}
+#
+#          EOF
+#
+#          # Append the generated changelog
+#          if [ -n "${{ steps.github-changelog.outputs.changelog }}" ]; then
+#            echo "${{ steps.github-changelog.outputs.changelog }}" >> RELEASE_NOTES.md
+#          else
+#            echo "No significant changes detected in this release." >> RELEASE_NOTES.md
+#          fi
+#
+#          # Add links to reports
+#          cat >> RELEASE_NOTES.md << EOF
+#
+#          ---
+#
+#          ## 📑 Reports & Documentation
+#
+#          * [Full Test Report](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
+#          * [Code Coverage Report](https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/reports/main/jacoco/index.html)
+#          * [API Documentation](https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/reports/main/apidocs/index.html)
+#
+#          ## 🔍 Build Information
+#
+#          * Build ID: \`${{ github.run_id }}\`
+#          * Commit: \`${{ github.sha }}\`
+#          * Workflow: [View Workflow Run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
+#
+#          EOF
+#
+#          # Get the release URL for notification
+#          RELEASE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/v${{ needs.build-and-test.outputs.new-version }}"
+#          echo "release-url=${RELEASE_URL}" >> $GITHUB_OUTPUT
+#
+#
+#      # Save current metrics for future trend comparison
+#      - name: Save metrics for future reference
+#        run: |
+#          if [ -f "./release-artifacts/sonar-report/sonar-report.json" ]; then
+#            cp ./release-artifacts/sonar-report/sonar-report.json ./sonar-metrics.json
+#          else
+#            echo "[]" > ./sonar-metrics.json
+#          fi
+#
+#      - name: Update GitHub Release
+#        uses: softprops/action-gh-release@v1
+#        with:
+#          name: Release ${{ needs.build-and-test.outputs.new-version }}
+#          tag_name: v${{ needs.build-and-test.outputs.new-version }}
+#          body_path: RELEASE_NOTES.md
+#          files: |
+#            sonar-metrics.json
+#          token: ${{ secrets.GITHUB_TOKEN }}
+#
+#      - name: Upload Release Notes
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: release-notes
+#          path: RELEASE_NOTES.md
+#          retention-days: 30
+#
+#  notify:
+#    name: Notify Team
+#    needs: [prepare, deploy-development, deploy-staging, deploy-production, build-and-test, generate-release-notes]
+#    if: always()
+#    runs-on: self-hosted
+#    steps:
+#      - name: Download release notes if available
+#        if: github.ref == 'refs/heads/main' && needs.generate-release-notes.result == 'success'
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: release-notes
+#          path: ./
+#
+#      - name: Prepare release summary
+#        id: release-summary
+#        if: github.ref == 'refs/heads/main' && needs.generate-release-notes.result == 'success'
+#        run: |
+#          if [ -f "release-notes.md" ]; then
+#            # Extract key metrics from the release notes
+#            TESTS=$(grep -A 4 "Test Results" release-notes.md | grep "Tests Executed" | awk -F'|' '{print $3}' | tr -d ' ')
+#            PASSED=$(grep -A 4 "Test Results" release-notes.md | grep "Tests Passed" | awk -F'|' '{print $3}' | tr -d ' ')
+#            COVERAGE=$(grep -A 4 "Test Results" release-notes.md | grep "Code Coverage" | awk -F'|' '{print $3}' | tr -d ' ')
+#            BUGS=$(grep -A 6 "Code Quality" release-notes.md | grep "Bugs" | awk -F'|' '{print $3}' | tr -d ' ')
+#            VULNERABILITIES=$(grep -A 6 "Code Quality" release-notes.md | grep "Vulnerabilities" | awk -F'|' '{print $3}' | tr -d ' ')
+#
+#            echo "tests=$TESTS" >> $GITHUB_OUTPUT
+#            echo "passed=$PASSED" >> $GITHUB_OUTPUT
+#            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+#            echo "bugs=$BUGS" >> $GITHUB_OUTPUT
+#            echo "vulnerabilities=$VULNERABILITIES" >> $GITHUB_OUTPUT
+#          else
+#            echo "tests=N/A" >> $GITHUB_OUTPUT
+#            echo "passed=N/A" >> $GITHUB_OUTPUT
+#            echo "coverage=N/A" >> $GITHUB_OUTPUT
+#            echo "bugs=N/A" >> $GITHUB_OUTPUT
+#            echo "vulnerabilities=N/A" >> $GITHUB_OUTPUT
+#          fi
+#
+#      - name: Notify via Email
+#        if: always()
+#        uses: dawidd6/action-send-mail@v3
+#        with:
+#          server_address: ${{ secrets.MAIL_SERVER }}
+#          server_port: ${{ secrets.MAIL_PORT }}
+#          username: ${{ secrets.MAIL_USERNAME }}
+#          password: ${{ secrets.MAIL_PASSWORD }}
+#          subject: "${{ needs.prepare.outputs.environment == 'production' && '🚀 Production Release' || '📦 Deployment Notification' }}: ETN SC Client v${{ needs.build-and-test.outputs.new-version }}"
+#          html_body: |
+#            <!DOCTYPE html>
+#            <html>
+#            <head>
+#              <style>
+#                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+#                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+#                .header { background-color: #0366d6; color: white; padding: 15px; border-radius: 5px 5px 0 0; }
+#                .header h1 { margin: 0; font-size: 24px; }
+#                .content { background-color: #f6f8fa; padding: 20px; border-radius: 0 0 5px 5px; }
+#                .environment { font-weight: bold; }
+#                .success { color: #28a745; }
+#                .failure { color: #d73a49; }
+#                .skipped { color: #a0a0a0; }
+#                .details { margin-top: 20px; border-top: 1px solid #e1e4e8; padding-top: 20px; }
+#                .metrics { margin-top: 20px; border-top: 1px solid #e1e4e8; padding-top: 20px; }
+#                .metrics-table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+#                .metrics-table th, .metrics-table td { padding: 8px; text-align: left; border-bottom: 1px solid #e1e4e8; }
+#                .footer { margin-top: 20px; font-size: 12px; color: #666; }
+#                .button { display: inline-block; padding: 10px 20px; background-color: #0366d6; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+#              </style>
+#            </head>
+#            <body>
+#              <div class="container">
+#                <div class="header">
+#                  <h1>ETN SC Client Deployment Notification</h1>
+#                </div>
+#                <div class="content">
+#                  <p>
+#                    The deployment to <span class="environment">${{ needs.prepare.outputs.environment }}</span> environment has been completed.
+#                  </p>
+#
+#                  <h3>Deployment Status:</h3>
+#                  <ul>
+#                    <li>
+#                      <strong>Development:</strong>
+#                      <span class="${{ needs.deploy-development.result == 'success' && 'success' || needs.deploy-development.result == 'failure' && 'failure' || 'skipped' }}">
+#                        ${{ needs.deploy-development.result || 'not deployed' }}
+#                      </span>
+#                    </li>
+#                    <li>
+#                      <strong>Staging:</strong>
+#                      <span class="${{ needs.deploy-staging.result == 'success' && 'success' || needs.deploy-staging.result == 'failure' && 'failure' || 'skipped' }}">
+#                        ${{ needs.deploy-staging.result || 'not deployed' }}
+#                      </span>
+#                    </li>
+#                    <li>
+#                      <strong>Production:</strong>
+#                      <span class="${{ needs.deploy-production.result == 'success' && 'success' || needs.deploy-production.result == 'failure' && 'failure' || 'skipped' }}">
+#                        ${{ needs.deploy-production.result || 'not deployed' }}
+#                      </span>
+#                    </li>
+#                  </ul>
+#
+#                  <div class="details">
+#                    <h3>Build Details:</h3>
+#                    <ul>
+#                      <li><strong>Version:</strong> ${{ needs.build-and-test.outputs.new-version }}</li>
+#                      <li><strong>Repository:</strong> ${{ github.repository }}</li>
+#                      <li><strong>Branch:</strong> ${{ github.ref_name }}</li>
+#                      <li><strong>Commit:</strong> ${{ github.sha }}</li>
+#                      <li><strong>Build ID:</strong> ${{ github.run_id }}</li>
+#                    </ul>
+#                  </div>
+#
+#                  ${{ github.ref == 'refs/heads/main' && needs.generate-release-notes.result == 'success' && format('
+#                  <div class="metrics">
+#                    <h3>Quality Metrics:</h3>
+#                    <table class="metrics-table">
+#                      <tr>
+#                        <th>Metric</th>
+#                        <th>Value</th>
+#                      </tr>
+#                      <tr>
+#                        <td>Tests</td>
+#                        <td>{0} ({1} passed)</td>
+#                      </tr>
+#                      <tr>
+#                        <td>Code Coverage</td>
+#                        <td>{2}</td>
+#                      </tr>
+#                      <tr>
+#                        <td>Bugs</td>
+#                        <td>{3}</td>
+#                      </tr>
+#                      <tr>
+#                        <td>Vulnerabilities</td>
+#                        <td>{4}</td>
+#                      </tr>
+#                    </table>
+#
+#                    <a href="{5}/releases/tag/v{6}" class="button">View Full Release Notes</a>
+#                  </div>
+#                  ', steps.release-summary.outputs.tests, steps.release-summary.outputs.passed, steps.release-summary.outputs.coverage, steps.release-summary.outputs.bugs, steps.release-summary.outputs.vulnerabilities, github.repository, needs.build-and-test.outputs.new-version) || '' }}
+#
+#                  <div class="footer">
+#                    <p>This is an automated message from the ETN SC Client CI/CD pipeline.</p>
+#                    <p>If you have any questions, please contact the development team.</p>
+#                  </div>
+#                </div>
+#              </div>
+#            </body>
+#            </html>
+#          convert_markdown: true
+#          to: ${{ secrets.NOTIFICATION_EMAIL }}
+#          from: ETN CI/CD Pipeline <${{ secrets.MAIL_USERNAME }}>
