@@ -10,22 +10,22 @@ on:
     outputs:
       environment:
         description: 'The determined environment name'
-        value: ${{ jobs.determine-environment.outputs.environment }}
+        value: ${{ jobs.calculate-environment.outputs.environment }}
       is_production:
         description: 'Whether this is a production environment'
-        value: ${{ jobs.determine-environment.outputs.is_production }}
+        value: ${{ jobs.calculate-environment.outputs.is_production }}
       is_staging:
         description: 'Whether this is a staging environment'
-        value: ${{ jobs.determine-environment.outputs.is_staging }}
+        value: ${{ jobs.calculate-environment.outputs.is_staging }}
       is_development:
         description: 'Whether this is a development environment'
-        value: ${{ jobs.determine-environment.outputs.is_development }}
+        value: ${{ jobs.calculate-environment.outputs.is_development }}
       is_testing:
         description: 'Whether this is a testing environment'
-        value: ${{ jobs.determine-environment.outputs.is_testing }}
+        value: ${{ jobs.calculate-environment.outputs.is_testing }}
       deploy:
         description: 'Whether to deploy to this environment'
-        value: ${{ jobs.determine-environment.outputs.deploy }}
+        value: ${{ jobs.calculate-environment.outputs.deploy }}
 
 jobs:
   calculate-environment:
