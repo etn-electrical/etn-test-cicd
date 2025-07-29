@@ -32,11 +32,7 @@ jobs:
     uses: ./.github/workflows/environment.yaml
     with:
       branch_name: ${{ github.ref_name }}
-    steps:
-      - name: get environment based on branch
-        run: |
-          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
-
+  
   print-environment-info:
     name: Print Environment Info
     needs: [ determine-environment ]
