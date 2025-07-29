@@ -21,7 +21,7 @@ on:
       skip-sonar:
         required: false
         type: boolean
-        default: false
+        default: true
         description: 'Skip SonarQube analysis'
       skip-reports:
         required: false
