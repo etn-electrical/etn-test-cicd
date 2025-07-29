@@ -35,6 +35,7 @@ jobs:
       environment: ${{ steps.set-env.outputs.environment }}
       is_production: ${{ steps.set-env.outputs.is_production }}
       is_staging: ${{ steps.set-env.outputs.is_staging }}
+      is_uat: ${{ steps.set-env.outputs.is_uat }}
       is_development: ${{ steps.set-env.outputs.is_development }}
       is_testing: ${{ steps.set-env.outputs.is_testing }}
       deploy: ${{ steps.set-env.outputs.deploy }}

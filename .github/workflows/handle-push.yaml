@@ -41,6 +41,10 @@ jobs:
           echo "GitHub Event Path: ${{ github.event_path }}" 
           echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
           echo "Need Deploy: ${{ needs.determine-environment.outputs.deploy }}"
+          echo "UAT: ${{ needs.determine-environment.outputs.is_uat }}"
+          echo "Staging: ${{ needs.determine-environment.outputs.is_staging }}"
+          echo "Development: ${{ needs.determine-environment.outputs.is_development }}"
+          echo "Production: ${{ needs.determine-environment.outputs.is_production }}"
           echo "Version: ${{ needs.determine-version.outputs.version }}"
   
   # Build the Java application
