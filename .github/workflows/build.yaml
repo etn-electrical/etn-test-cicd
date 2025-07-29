@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   build:
-    name: Build and Test
+    name: Build Maven & Upload Artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
