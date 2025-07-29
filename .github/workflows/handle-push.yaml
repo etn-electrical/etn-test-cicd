@@ -42,10 +42,10 @@ jobs:
         run: |
           echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
           echo "Need Deploy: ${{ needs.determine-environment.outputs.deploy }}"
-          echo "UAT: ${{ needs.determine-environment.outputs.is_uat }}"
+          echo "UAT: ${{ needs.calculate-environment.outputs.is_uat }}"
           echo "Staging: ${{ needs.determine-environment.outputs.is_staging }}"
-          echo "Development: ${{ needs.determine-environment.outputs.is_development }}"
-          echo "Production: ${{ needs.determine-environment.outputs.is_production }}"
+          echo "Development: ${{ needs.calculate-environment.outputs.is_development }}"
+          echo "Production: ${{ needs.calculate-environment.outputs.is_production }}"
 
   determine-version:
     name: Determine Version
@@ -55,7 +55,7 @@ jobs:
 
   print-version-info:
     name: Print Version Info
-    needs: [determine-version, determine-environment]
+    needs: [determine-version]
     runs-on: ubuntu-latest
     steps:
       - name: Print GitHub event info
@@ -65,7 +65,7 @@ jobs:
   # Build the Java application
   build-java:
     name: Build Java Application
-    needs: [print-github-info, determine-version]
+    needs: [determine-version]
     uses: ./.github/workflows/build.yaml
     with:
       version-args: ${{ needs.determine-version.outputs.version }}
