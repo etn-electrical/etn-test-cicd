@@ -1,0 +1,78 @@
+name: Build and Test Workflow
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version to use for the build'
+      maven-args:
+        required: false
+        type: string
+        default: 'clean package'
+        description: 'Maven arguments for building'
+      version-args:
+        required: true
+        type: string
+        description: 'Version to use for the build'
+    outputs:
+      artifact-name:
+        description: 'Name of the built artifact'
+        value: ${{ jobs.build.outputs.artifact-name }}
+      build-status:
+        description: 'Build status'
+        value: ${{ jobs.build.outputs.status }}
+
+permissions:
+  contents: read
+  packages: write
+  checks: write
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      artifact-name: ${{ steps.build-info.outputs.artifact-name }}
+      status: ${{ steps.build-info.outputs.status }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      - name: Update version in pom.xml
+        run: |
+          mvn versions:set -DnewVersion=${{ inputs.version-args }} -DgenerateBackupPoms=false
+
+      - name: Build with Maven
+        run: mvn -B ${{ inputs.maven-args }}
+
+      - name: Run tests
+        run: mvn -B test
+
+      - name: Generate build info
+        id: build-info
+        run: |
+          ARTIFACT_NAME=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
+          echo "artifact-name=${ARTIFACT_NAME}-${{ inputs.version-args }}" >> $GITHUB_OUTPUT
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ inputs.version-args }}
+          path: target/*.jar
+          retention-days: 30
+

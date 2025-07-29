@@ -16,10 +16,6 @@ on:
         description: 'Whether this is a release build'
         value: ${{ jobs.version-calc.outputs.is-release }}
 
-permissions:
-  contents: write
-  packages: read
-
 jobs:
   version-calc:
     name: Calculate Version
@@ -58,7 +54,7 @@ jobs:
             # Release branch - use RC version
             RC_NUMBER=$(git rev-list --count HEAD)
             VERSION="${BASE_VERSION}-rc.${RC_NUMBER}"
-            IS_RELEASE="true"
+            IS_RELEASE="false"
           elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
             # Develop branch - use snapshot with build number
             BUILD_NUMBER=$(git rev-list --count HEAD)

@@ -15,10 +15,14 @@ jobs:
     uses: ./.github/workflows/environment.yaml
     with:
       branch_name: ${{ github.ref_name }}
-  
-  # Build the Java application
-  build-and-deploy:
-    needs: determine-environment
+
+  determine-version:
+    uses: ./.github/workflows/version.yaml
+    with:
+      java-version: '17'
+
+  print-github-info:
+    needs: [determine-version, determine-environment]
     runs-on: ubuntu-latest
     steps:
       - name: Print GitHub event info
@@ -32,27 +36,15 @@ jobs:
           echo "GitHub Workflow: ${{ github.workflow }}"
           echo "GitHub Workspace: ${{ github.workspace }}"
           echo "GitHub Event Path: ${{ github.event_path }}" 
-          echo "environment: ${{ needs.determine-environment.outputs.environment }}"
-          echo "Artifact name: ${{ needs.determine-environment.outputs.deploy }}"
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "Need Deploy: ${{ needs.determine-environment.outputs.deploy }}"
+          echo "Version: ${{ needs.determine-version.outputs.version }}"
+  
+  # Build the Java application
+  build-java:
+    needs: [print-github-info, determine-version]
+    uses: ./.github/workflows/build.yaml
+    with:
+      version-args: ${{ needs.determine-version.outputs.version }}
+      java-version: '17'
 
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
-      
-      - name: Build with Maven
-        run: |
-          
-          mvn -B package --file pom.xml
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app
-          path: target/*.jar
-      
