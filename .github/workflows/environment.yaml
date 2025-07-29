@@ -49,6 +49,7 @@ jobs:
           IS_STAGING="false"
           IS_DEVELOPMENT="false"
           IS_TESTING="false"
+          IS_UAT="false"
           DEPLOY="false"
           
           # Main branch -> Production
@@ -57,29 +58,30 @@ jobs:
             IS_PRODUCTION="true"
             DEPLOY="true"
           
-          # Dev branch -> Development
+          # Dev branch -> Staging
           elif [[ "$BRANCH" == "dev" ]]; then
-            ENVIRONMENT="development"
-            IS_DEVELOPMENT="true"
-            DEPLOY="true"
-          
-          # Release branches -> Staging
-          elif [[ "$BRANCH" =~ ^release/.* ]]; then
             ENVIRONMENT="staging"
             IS_STAGING="true"
             DEPLOY="true"
           
-          # Feature branches -> Testing
-          elif [[ "$BRANCH" =~ ^feature/.* ]]; then
-            ENVIRONMENT="testing"
-            IS_TESTING="true"
+          # Release branches -> Staging
+          elif [[ "$BRANCH" =~ ^release/.* ]]; then
+            ENVIRONMENT="uat"
+            IS_UAT="true"
             DEPLOY="false"
+          
+          # Feature branches -> Development
+          elif [[ "$BRANCH" =~ ^feature/.* ]]; then
+            ENVIRONMENT="development"
+            IS_DEVELOPMENT="true"
+            DEPLOY="true"
           fi
           
           # Set all outputs
           echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
           echo "is_production=$IS_PRODUCTION" >> $GITHUB_OUTPUT
           echo "is_staging=$IS_STAGING" >> $GITHUB_OUTPUT
+          echo "is_uat=$IS_UAT" >> $GITHUB_OUTPUT
           echo "is_development=$IS_DEVELOPMENT" >> $GITHUB_OUTPUT
           echo "is_testing=$IS_TESTING" >> $GITHUB_OUTPUT
           echo "deploy=$DEPLOY" >> $GITHUB_OUTPUT
