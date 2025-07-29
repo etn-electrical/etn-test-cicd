@@ -23,6 +23,9 @@ on:
       is_testing:
         description: 'Whether this is a testing environment'
         value: ${{ jobs.calculate-environment.outputs.is_testing }}
+      is_uat:
+        description: 'Whether this is a UAT environment'
+        value: ${{ jobs.calculate-environment.outputs.is_uat }}
       deploy:
         description: 'Whether to deploy to this environment'
         value: ${{ jobs.calculate-environment.outputs.deploy }}
