@@ -24,6 +24,7 @@ jobs:
       java-version: '17'
 
   print-github-info:
+    name: Print GitHub Info
     needs: [determine-version, determine-environment]
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +45,7 @@ jobs:
   
   # Build the Java application
   build-java:
+    name: Build Java Application
     needs: [print-github-info, determine-version]
     uses: ./.github/workflows/build.yaml
     with:
