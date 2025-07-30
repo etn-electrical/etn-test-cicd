@@ -83,44 +83,44 @@ jobs:
           path: ai_analysis.md
           retention-days: 30
 
-#  code-scanning:
-#    name: Code Quality & Security Scanning
-#    runs-on: ubuntu-latest
-#    if: github.event.pull_request.draft == false
-#    steps:
-#      - name: Checkout code
-#        uses: actions/checkout@v4
-#        with:
-#          fetch-depth: 0
-#          ref: ${{ github.event.pull_request.head.sha }}
-#
-#      - name: Setup Java
-#        uses: actions/setup-java@v4
-#        with:
-#          java-version: '17'
-#          distribution: 'temurin'
-#
-#      - name: Cache Maven dependencies
-#        uses: actions/cache@v4
-#        with:
-#          path: ~/.m2
-#          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-#          restore-keys: ${{ runner.os }}-m2
-#
-#      - name: Initialize CodeQL
-#        id: codeql-init
-#        uses: github/codeql-action/init@v3
-#        with:
-#          languages: java
-#          queries: security-and-quality
-#        continue-on-error: true
-#
-#      - name: Build project for analysis
-#        id: build
-#        run: |
-#          mvn clean compile -DskipTests
-#        continue-on-error: true
-#
+  code-scanning:
+    name: Code Quality & Security Scanning
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Initialize CodeQL
+        id: codeql-init
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+          queries: security-and-quality
+        continue-on-error: true
+
+      - name: Build project for analysis
+        id: build
+        run: |
+          mvn clean compile -DskipTests
+        continue-on-error: true
+
 #      - name: Perform CodeQL Analysis
 #        id: codeql-analyze
 #        uses: github/codeql-action/analyze@v3
@@ -128,7 +128,7 @@ jobs:
 #          category: "/language:java"
 #        continue-on-error: true
 #        if: steps.codeql-init.outcome == 'success'
-#
+
 #      - name: Run OWASP Dependency Check
 #        id: owasp-check
 #        uses: dependency-check/Dependency-Check_Action@main
@@ -141,7 +141,7 @@ jobs:
 #            --enableExperimental
 #            --failOnCVSS 7
 #        continue-on-error: true
-#
+
 #      - name: Run SonarQube Quality Analysis
 #        id: sonar-analysis
 #        uses: sonarqube-quality-gate-action@v1.3.0
@@ -151,129 +151,129 @@ jobs:
 #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 #          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 #        continue-on-error: true
-#
-#      - name: Run SpotBugs Analysis
-#        id: spotbugs-analysis
-#        run: |
-#          mvn compile spotbugs:spotbugs
-#        continue-on-error: true
-#
-#      - name: Run PMD Analysis
-#        id: pmd-analysis
-#        run: |
-#          mvn pmd:pmd pmd:cpd
-#        continue-on-error: true
-#
-#      - name: Generate Quality Report
-#        run: |
-#          echo "## 📊 Code Quality & Security Report" > quality_report.md
-#          echo "" >> quality_report.md
-#
-#          # CodeQL Results
-#          echo "### 🔍 Security Analysis (CodeQL)" >> quality_report.md
-#          if [ "${{ steps.codeql-analyze.outcome }}" == "success" ]; then
-#            echo "- ✅ **CodeQL scan completed successfully**" >> quality_report.md
-#            echo "- 📄 **Results:** See Security tab for detailed findings" >> quality_report.md
-#          elif [ "${{ steps.codeql-init.outcome }}" == "failure" ]; then
-#            echo "- ❌ **CodeQL initialization failed** - Check workflow logs" >> quality_report.md
-#          elif [ "${{ steps.codeql-analyze.outcome }}" == "failure" ]; then
-#            echo "- ⚠️ **CodeQL analysis failed** - Check build issues" >> quality_report.md
-#          else
-#            echo "- ⚠️ **CodeQL scan:** Skipped or incomplete" >> quality_report.md
-#          fi
-#          echo "" >> quality_report.md
-#
-#          # Dependency Check Results
-#          echo "### 🛡️ Dependency Security (OWASP)" >> quality_report.md
-#          if [ "${{ steps.owasp-check.outcome }}" == "success" ] && [ -f "reports/dependency-check-report.json" ]; then
-#            vulnerabilities=$(jq '.dependencies | map(select(.vulnerabilities | length > 0)) | length' reports/dependency-check-report.json 2>/dev/null || echo "0")
-#            total_deps=$(jq '.dependencies | length' reports/dependency-check-report.json 2>/dev/null || echo "N/A")
-#            echo "- 📦 **Dependencies scanned:** $total_deps" >> quality_report.md
-#            echo "- ⚠️ **Vulnerable dependencies:** $vulnerabilities" >> quality_report.md
-#            if [ "$vulnerabilities" -gt 0 ]; then
-#              echo "- 🚨 **Action required:** Review dependency vulnerabilities" >> quality_report.md
-#            fi
-#          elif [ "${{ steps.owasp-check.outcome }}" == "failure" ]; then
-#            echo "- ❌ **OWASP scan failed** - Check configuration or connectivity" >> quality_report.md
-#          else
-#            echo "- ⚠️ **OWASP scan:** Report not available" >> quality_report.md
-#          fi
-#          echo "" >> quality_report.md
-#
-#          # PMD Results
-#          echo "### 📏 Code Quality (PMD)" >> quality_report.md
-#          if [ "${{ steps.pmd-analysis.outcome }}" == "success" ] && [ -f "target/pmd.xml" ]; then
-#            violations=$(grep -c "<violation" target/pmd.xml 2>/dev/null || echo "0")
-#            echo "- 📊 **PMD violations:** $violations" >> quality_report.md
-#            if [ "$violations" -gt 0 ]; then
-#              echo "- 📄 **Details:** Check PMD report in artifacts" >> quality_report.md
-#            fi
-#          elif [ "${{ steps.pmd-analysis.outcome }}" == "failure" ]; then
-#            echo "- ❌ **PMD analysis failed** - Check build configuration" >> quality_report.md
-#          else
-#            echo "- ⚠️ **PMD analysis:** Report not generated" >> quality_report.md
-#          fi
-#          echo "" >> quality_report.md
-#
-#          # SpotBugs Results
-#          echo "### 🐛 Bug Analysis (SpotBugs)" >> quality_report.md
-#          if [ "${{ steps.spotbugs-analysis.outcome }}" == "success" ] && [ -f "target/spotbugsXml.xml" ]; then
-#            bugs=$(grep -c "<BugInstance" target/spotbugsXml.xml 2>/dev/null || echo "0")
-#            echo "- 🔍 **Potential bugs found:** $bugs" >> quality_report.md
-#            if [ "$bugs" -gt 0 ]; then
-#              echo "- 📄 **Details:** Check SpotBugs report in artifacts" >> quality_report.md
-#            fi
-#          elif [ "${{ steps.spotbugs-analysis.outcome }}" == "failure" ]; then
-#            echo "- ❌ **SpotBugs analysis failed** - Check build dependencies" >> quality_report.md
-#          else
-#            echo "- ⚠️ **SpotBugs analysis:** Report not generated" >> quality_report.md
-#          fi
-#          echo "" >> quality_report.md
-#
-#          # Test Coverage
-#          echo "### 🧪 Test Coverage Analysis" >> quality_report.md
-#          if mvn jacoco:report 2>/dev/null; then
-#            if [ -f "target/site/jacoco/index.html" ]; then
-#              echo "- ✅ **Coverage report generated**" >> quality_report.md
-#              echo "- 📊 **Report location:** Available in artifacts" >> quality_report.md
-#              # Extract coverage percentage if possible
-#              if command -v xmllint >/dev/null 2>&1 && [ -f "target/site/jacoco/jacoco.xml" ]; then
-#                coverage=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
-#                total=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
-#                if [ "$coverage" != "N/A" ] && [ "$total" != "N/A" ] && [ "$coverage" -gt 0 ] && [ "$total" -ge 0 ]; then
-#                  percentage=$(awk "BEGIN {printf \"%.2f\", $coverage * 100 / ($coverage + $total)}" 2>/dev/null || echo "N/A")
-#                  echo "- 📈 **Coverage:** ${percentage}%" >> quality_report.md
-#                fi
-#              fi
-#            fi
-#          else
-#            echo "- ⚠️ **Coverage analysis:** Failed to generate report" >> quality_report.md
-#          fi
-#          echo "" >> quality_report.md
-#
-#          # Summary of scan results
-#          echo "### 📋 Scan Summary" >> quality_report.md
-#          echo "**Completed Scans:**" >> quality_report.md
-#          [ "${{ steps.codeql-analyze.outcome }}" == "success" ] && echo "- ✅ CodeQL Security Analysis" >> quality_report.md || echo "- ❌ CodeQL Security Analysis" >> quality_report.md
-#          [ "${{ steps.owasp-check.outcome }}" == "success" ] && echo "- ✅ OWASP Dependency Check" >> quality_report.md || echo "- ❌ OWASP Dependency Check" >> quality_report.md
-#          [ "${{ steps.pmd-analysis.outcome }}" == "success" ] && echo "- ✅ PMD Code Quality" >> quality_report.md || echo "- ❌ PMD Code Quality" >> quality_report.md
-#          [ "${{ steps.spotbugs-analysis.outcome }}" == "success" ] && echo "- ✅ SpotBugs Analysis" >> quality_report.md || echo "- ❌ SpotBugs Analysis" >> quality_report.md
-#          [ "${{ steps.sonar-analysis.outcome }}" == "success" ] && echo "- ✅ SonarQube Analysis" >> quality_report.md || echo "- ❌ SonarQube Analysis" >> quality_report.md
-#          echo "" >> quality_report.md
-#          echo "*Note: Failed scans do not prevent workflow completion. Check individual scan logs for details.*" >> quality_report.md
-#
-#      - name: Upload Quality Reports
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: quality-reports-${{ github.event.pull_request.number }}
-#          path: |
-#            quality_report.md
-#            target/pmd.xml
-#            target/spotbugsXml.xml
-#            target/site/jacoco/
-#            reports/dependency-check-report.*
-#          retention-days: 30
-#        if: always()
+
+      - name: Run SpotBugs Analysis
+        id: spotbugs-analysis
+        run: |
+          mvn compile spotbugs:spotbugs
+        continue-on-error: true
+
+      - name: Run PMD Analysis
+        id: pmd-analysis
+        run: |
+          mvn pmd:pmd pmd:cpd
+        continue-on-error: true
+
+      - name: Generate Quality Report
+        run: |
+          echo "## 📊 Code Quality & Security Report" > quality_report.md
+          echo "" >> quality_report.md
+
+          # CodeQL Results
+          echo "### 🔍 Security Analysis (CodeQL)" >> quality_report.md
+          if [ "${{ steps.codeql-analyze.outcome }}" == "success" ]; then
+            echo "- ✅ **CodeQL scan completed successfully**" >> quality_report.md
+            echo "- 📄 **Results:** See Security tab for detailed findings" >> quality_report.md
+          elif [ "${{ steps.codeql-init.outcome }}" == "failure" ]; then
+            echo "- ❌ **CodeQL initialization failed** - Check workflow logs" >> quality_report.md
+          elif [ "${{ steps.codeql-analyze.outcome }}" == "failure" ]; then
+            echo "- ⚠️ **CodeQL analysis failed** - Check build issues" >> quality_report.md
+          else
+            echo "- ⚠️ **CodeQL scan:** Skipped or incomplete" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # Dependency Check Results
+          echo "### 🛡️ Dependency Security (OWASP)" >> quality_report.md
+          if [ "${{ steps.owasp-check.outcome }}" == "success" ] && [ -f "reports/dependency-check-report.json" ]; then
+            vulnerabilities=$(jq '.dependencies | map(select(.vulnerabilities | length > 0)) | length' reports/dependency-check-report.json 2>/dev/null || echo "0")
+            total_deps=$(jq '.dependencies | length' reports/dependency-check-report.json 2>/dev/null || echo "N/A")
+            echo "- 📦 **Dependencies scanned:** $total_deps" >> quality_report.md
+            echo "- ⚠️ **Vulnerable dependencies:** $vulnerabilities" >> quality_report.md
+            if [ "$vulnerabilities" -gt 0 ]; then
+              echo "- 🚨 **Action required:** Review dependency vulnerabilities" >> quality_report.md
+            fi
+          elif [ "${{ steps.owasp-check.outcome }}" == "failure" ]; then
+            echo "- ❌ **OWASP scan failed** - Check configuration or connectivity" >> quality_report.md
+          else
+            echo "- ⚠️ **OWASP scan:** Report not available" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # PMD Results
+          echo "### 📏 Code Quality (PMD)" >> quality_report.md
+          if [ "${{ steps.pmd-analysis.outcome }}" == "success" ] && [ -f "target/pmd.xml" ]; then
+            violations=$(grep -c "<violation" target/pmd.xml 2>/dev/null || echo "0")
+            echo "- 📊 **PMD violations:** $violations" >> quality_report.md
+            if [ "$violations" -gt 0 ]; then
+              echo "- 📄 **Details:** Check PMD report in artifacts" >> quality_report.md
+            fi
+          elif [ "${{ steps.pmd-analysis.outcome }}" == "failure" ]; then
+            echo "- ❌ **PMD analysis failed** - Check build configuration" >> quality_report.md
+          else
+            echo "- ⚠️ **PMD analysis:** Report not generated" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # SpotBugs Results
+          echo "### 🐛 Bug Analysis (SpotBugs)" >> quality_report.md
+          if [ "${{ steps.spotbugs-analysis.outcome }}" == "success" ] && [ -f "target/spotbugsXml.xml" ]; then
+            bugs=$(grep -c "<BugInstance" target/spotbugsXml.xml 2>/dev/null || echo "0")
+            echo "- 🔍 **Potential bugs found:** $bugs" >> quality_report.md
+            if [ "$bugs" -gt 0 ]; then
+              echo "- 📄 **Details:** Check SpotBugs report in artifacts" >> quality_report.md
+            fi
+          elif [ "${{ steps.spotbugs-analysis.outcome }}" == "failure" ]; then
+            echo "- ❌ **SpotBugs analysis failed** - Check build dependencies" >> quality_report.md
+          else
+            echo "- ⚠️ **SpotBugs analysis:** Report not generated" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # Test Coverage
+          echo "### 🧪 Test Coverage Analysis" >> quality_report.md
+          if mvn jacoco:report 2>/dev/null; then
+            if [ -f "target/site/jacoco/index.html" ]; then
+              echo "- ✅ **Coverage report generated**" >> quality_report.md
+              echo "- 📊 **Report location:** Available in artifacts" >> quality_report.md
+              # Extract coverage percentage if possible
+              if command -v xmllint >/dev/null 2>&1 && [ -f "target/site/jacoco/jacoco.xml" ]; then
+                coverage=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
+                total=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
+                if [ "$coverage" != "N/A" ] && [ "$total" != "N/A" ] && [ "$coverage" -gt 0 ] && [ "$total" -ge 0 ]; then
+                  percentage=$(awk "BEGIN {printf \"%.2f\", $coverage * 100 / ($coverage + $total)}" 2>/dev/null || echo "N/A")
+                  echo "- 📈 **Coverage:** ${percentage}%" >> quality_report.md
+                fi
+              fi
+            fi
+          else
+            echo "- ⚠️ **Coverage analysis:** Failed to generate report" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # Summary of scan results
+          echo "### 📋 Scan Summary" >> quality_report.md
+          echo "**Completed Scans:**" >> quality_report.md
+          [ "${{ steps.codeql-analyze.outcome }}" == "success" ] && echo "- ✅ CodeQL Security Analysis" >> quality_report.md || echo "- ❌ CodeQL Security Analysis" >> quality_report.md
+          [ "${{ steps.owasp-check.outcome }}" == "success" ] && echo "- ✅ OWASP Dependency Check" >> quality_report.md || echo "- ❌ OWASP Dependency Check" >> quality_report.md
+          [ "${{ steps.pmd-analysis.outcome }}" == "success" ] && echo "- ✅ PMD Code Quality" >> quality_report.md || echo "- ❌ PMD Code Quality" >> quality_report.md
+          [ "${{ steps.spotbugs-analysis.outcome }}" == "success" ] && echo "- ✅ SpotBugs Analysis" >> quality_report.md || echo "- ❌ SpotBugs Analysis" >> quality_report.md
+          [ "${{ steps.sonar-analysis.outcome }}" == "success" ] && echo "- ✅ SonarQube Analysis" >> quality_report.md || echo "- ❌ SonarQube Analysis" >> quality_report.md
+          echo "" >> quality_report.md
+          echo "*Note: Failed scans do not prevent workflow completion. Check individual scan logs for details.*" >> quality_report.md
+
+      - name: Upload Quality Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports-${{ github.event.pull_request.number }}
+          path: |
+            quality_report.md
+            target/pmd.xml
+            target/spotbugsXml.xml
+            target/site/jacoco/
+            reports/dependency-check-report.*
+          retention-days: 30
+        if: always()
 
   pr-analysis:
     name: PR Analysis and Comments
