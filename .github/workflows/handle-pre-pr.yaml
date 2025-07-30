@@ -250,50 +250,6 @@ jobs:
         run: |
           mvn clean compile -DskipTests
 
-      - name: Run code quality analysis
-        run: |
-          echo "Running comprehensive code analysis..."
-          
-          # Run all analyses in parallel where possible
-          (mvn spotbugs:spotbugs || echo "SpotBugs completed with warnings") &
-          (mvn pmd:pmd pmd:cpd || echo "PMD completed with warnings") &
-          
-          # Wait for static analysis to complete
-          wait
-          
-          # Run tests with coverage
-          mvn clean test -Dmaven.test.failure.ignore=true jacoco:report || echo "Tests completed with coverage"
-
-      - name: Generate comprehensive quality report
-        run: |
-          echo "## 📊 Code Quality & Security Report" > quality_report.md
-          echo "" >> quality_report.md
-
-          # PMD Results
-          echo "### 📏 Code Quality (PMD)" >> quality_report.md
-          if [ -f "target/pmd.xml" ]; then
-            violations=$(grep -c "<violation" target/pmd.xml 2>/dev/null || echo "0")
-            echo "- 📊 **PMD violations:** $violations" >> quality_report.md
-            [ "$violations" -gt 0 ] && echo "- 📄 **Details:** Check PMD report in artifacts" >> quality_report.md
-          else
-            echo "- ⚠️ **PMD analysis:** Report not generated" >> quality_report.md
-          fi
-          echo "" >> quality_report.md
-
-          # SpotBugs Results
-          echo "### 🐛 Bug Analysis (SpotBugs)" >> quality_report.md
-          if [ -f "target/spotbugsXml.xml" ]; then
-            bugs=$(grep -c "<BugInstance" target/spotbugsXml.xml 2>/dev/null || echo "0")
-            echo "- 🔍 **Potential bugs found:** $bugs" >> quality_report.md
-            [ "$bugs" -gt 0 ] && echo "- 📄 **Details:** Check SpotBugs report in artifacts" >> quality_report.md
-          else
-            echo "- ⚠️ **SpotBugs analysis:** Report not generated" >> quality_report.md
-          fi
-          echo "" >> quality_report.md
-
-          # Generate JaCoCo summary
-          ./generate_jacoco_summary.sh
-
       - name: Create JaCoCo summary generator
         run: |
           cat << 'EOF' > generate_jacoco_summary.sh
@@ -347,7 +303,7 @@ jobs:
               extract_coverage "CLASS" "🏛️" "Class"
               
               # Overall assessment
-              echo "## 📋 Coverage Analysis" >> jacoco_summary.md
+              echo "## � Coverage Analysis" >> jacoco_summary.md
               echo "" >> jacoco_summary.md
               
               # Get overall percentage for assessment
@@ -362,7 +318,7 @@ jobs:
                   if [ $percentage -ge 80 ]; then
                     echo "✅ **Coverage Quality:** Excellent (${percentage}%)" >> jacoco_summary.md
                   elif [ $percentage -ge 70 ]; then
-                    echo "🟡 **Coverage Quality:** Good (${percentage}%)" >> jacoco_summary.md
+                    echo "� **Coverage Quality:** Good (${percentage}%)" >> jacoco_summary.md
                   elif [ $percentage -ge 50 ]; then
                     echo "🟠 **Coverage Quality:** Fair (${percentage}%)" >> jacoco_summary.md
                   else
@@ -394,6 +350,70 @@ jobs:
           EOF
           
           chmod +x generate_jacoco_summary.sh
+
+      - name: Run code quality analysis
+        run: |
+          echo "Running comprehensive code analysis..."
+          
+          # Run all analyses in parallel where possible
+          (mvn spotbugs:spotbugs || echo "SpotBugs completed with warnings") &
+          (mvn pmd:pmd pmd:cpd || echo "PMD completed with warnings") &
+          
+          # Wait for static analysis to complete
+          wait
+          
+          # Run tests with coverage
+          mvn clean test -Dmaven.test.failure.ignore=true jacoco:report || echo "Tests completed with coverage"
+
+      - name: Generate comprehensive quality report
+        run: |
+          echo "## 📊 Code Quality & Security Report" > quality_report.md
+          echo "" >> quality_report.md
+
+          # PMD Results
+          echo "### 📏 Code Quality (PMD)" >> quality_report.md
+          if [ -f "target/pmd.xml" ]; then
+            violations=$(grep -c "<violation" target/pmd.xml 2>/dev/null || echo "0")
+            echo "- 📊 **PMD violations:** $violations" >> quality_report.md
+            [ "$violations" -gt 0 ] && echo "- 📄 **Details:** Check PMD report in artifacts" >> quality_report.md
+          else
+            echo "- ⚠️ **PMD analysis:** Report not generated" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # SpotBugs Results
+          echo "### 🐛 Bug Analysis (SpotBugs)" >> quality_report.md
+          if [ -f "target/spotbugsXml.xml" ]; then
+            bugs=$(grep -c "<BugInstance" target/spotbugsXml.xml 2>/dev/null || echo "0")
+            echo "- 🔍 **Potential bugs found:** $bugs" >> quality_report.md
+            [ "$bugs" -gt 0 ] && echo "- 📄 **Details:** Check SpotBugs report in artifacts" >> quality_report.md
+          else
+            echo "- ⚠️ **SpotBugs analysis:** Report not generated" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # Generate JaCoCo summary
+          ./generate_jacoco_summary.sh
+          
+          # Add coverage reference to quality report
+          echo "### 🧪 Test Coverage Analysis" >> quality_report.md
+          if [ -f "target/site/jacoco/index.html" ]; then
+            echo "- ✅ **Coverage analysis completed**" >> quality_report.md
+            echo "- 📊 **Summary:** See coverage details in separate report" >> quality_report.md
+            echo "- 📄 **Full report:** Available in artifacts" >> quality_report.md
+          else
+            echo "- ❌ **Coverage analysis failed** - Check test execution" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # Summary of scan results
+          echo "### 📋 Scan Summary" >> quality_report.md
+          echo "**Completed Scans:**" >> quality_report.md
+          [ -f "target/pmd.xml" ] && echo "- ✅ PMD Code Quality" >> quality_report.md || echo "- ❌ PMD Code Quality" >> quality_report.md
+          [ -f "target/spotbugsXml.xml" ] && echo "- ✅ SpotBugs Analysis" >> quality_report.md || echo "- ❌ SpotBugs Analysis" >> quality_report.md
+          [ -f "target/site/jacoco/index.html" ] && echo "- ✅ JaCoCo Coverage Analysis" >> quality_report.md || echo "- ❌ JaCoCo Coverage Analysis" >> quality_report.md
+          echo "" >> quality_report.md
+          echo "*Note: Failed scans do not prevent workflow completion. Check individual scan logs for details.*" >> quality_report.md
 
       - name: Cleanup and restore
         run: |
