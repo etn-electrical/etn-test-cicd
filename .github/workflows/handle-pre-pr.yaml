@@ -278,7 +278,7 @@ jobs:
   pr-analysis:
     name: PR Analysis and Comments
     runs-on: ubuntu-latest
-    needs: [copilot-code-review, code-scanning]
+    needs: [code-review, code-scanning]
     if: always() && github.event.pull_request.draft == false
     steps:
       - name: Checkout code
