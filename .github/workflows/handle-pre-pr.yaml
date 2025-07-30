@@ -7,7 +7,7 @@ on:
       - main
       - develop
       - 'release/**'
-    workflow_dispatch:
+  workflow_dispatch:
 
 permissions:
   contents: read
