@@ -17,8 +17,8 @@ permissions:
   actions: read
 
 jobs:
-  copilot-code-review:
-    name: Copilot Code Review
+  code-review:
+    name: Code Review
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     steps:
@@ -34,36 +34,54 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Copilot Code Review
-        uses: github/copilot-code-review@v1
+      - name: Basic Code Analysis
+        run: |
+          echo "## 🤖 Basic Code Analysis" > ai_analysis.md
+          echo "" >> ai_analysis.md
+          
+          # Analyze file changes
+          git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} > changed_files.txt
+          
+          echo "### 📁 Changed Files Analysis" >> ai_analysis.md
+          java_files=$(grep -E '\.(java)$' changed_files.txt | wc -l)
+          xml_files=$(grep -E '\.(xml)$' changed_files.txt | wc -l)
+          yaml_files=$(grep -E '\.(yaml|yml)$' changed_files.txt | wc -l)
+          prop_files=$(grep -E '\.(properties)$' changed_files.txt | wc -l)
+          
+          echo "- **Java files changed:** $java_files" >> ai_analysis.md
+          echo "- **XML files changed:** $xml_files" >> ai_analysis.md
+          echo "- **YAML files changed:** $yaml_files" >> ai_analysis.md
+          echo "- **Properties files changed:** $prop_files" >> ai_analysis.md
+          echo "" >> ai_analysis.md
+          
+          # Check for Spring Boot specific patterns
+          echo "### 🍃 Spring Boot Pattern Analysis" >> ai_analysis.md
+          if grep -qE "(Controller|Service|Repository|Component|Entity)" changed_files.txt 2>/dev/null; then
+            echo "- ✅ **Spring annotations detected** - Review for proper usage" >> ai_analysis.md
+          fi
+          
+          if grep -qE "application\.(yml|yaml|properties)" changed_files.txt 2>/dev/null; then
+            echo "- ⚙️ **Configuration changes detected** - Verify settings" >> ai_analysis.md
+          fi
+          
+          if grep -qE "pom\.xml" changed_files.txt 2>/dev/null; then
+            echo "- 📦 **Maven configuration changed** - Review dependencies" >> ai_analysis.md
+          fi
+          echo "" >> ai_analysis.md
+          
+          echo "### 📋 Manual Review Recommendations" >> ai_analysis.md
+          echo "- Review code for Spring Boot best practices" >> ai_analysis.md
+          echo "- Check security configurations" >> ai_analysis.md
+          echo "- Validate error handling patterns" >> ai_analysis.md
+          echo "- Ensure proper logging implementation" >> ai_analysis.md
+          echo "- Verify test coverage for new functionality" >> ai_analysis.md
+
+      - name: Upload Basic Analysis
+        uses: actions/upload-artifact@v4
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          # Review only changed files
-          review-level: 'changed-files'
-          # Focus on Java, XML, and YAML files
-          file-patterns: |
-            **/*.java
-            **/*.xml
-            **/*.yml
-            **/*.yaml
-            **/*.properties
-          # Custom review prompts for better analysis
-          review-prompt: |
-            Please review this Java Spring Boot application code for:
-            1. Code quality and best practices
-            2. Security vulnerabilities
-            3. Performance implications
-            4. Spring Boot specific patterns
-            5. Maven configuration issues
-            6. Potential bugs or logic errors
-            7. Test coverage gaps
-            8. Documentation needs
-          # Skip binary files and generated code
-          exclude-patterns: |
-            target/**
-            *.class
-            *.jar
-            logs/**
+          name: basic-analysis-${{ github.event.pull_request.number }}
+          path: ai_analysis.md
+          retention-days: 30
 
   code-scanning:
     name: Code Quality & Security Scanning
@@ -126,7 +144,7 @@ jobs:
 
       - name: Run SonarQube Quality Analysis
         id: sonar-analysis
-        uses: sonarqube-quality-gate-action@master
+        uses: sonarqube-quality-gate-action@v1.3.0
         with:
           scanMetadataReportFile: target/sonar/report-task.txt
         env:
@@ -222,8 +240,8 @@ jobs:
               if command -v xmllint >/dev/null 2>&1 && [ -f "target/site/jacoco/jacoco.xml" ]; then
                 coverage=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
                 total=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
-                if [ "$coverage" != "N/A" ] && [ "$total" != "N/A" ]; then
-                  percentage=$(echo "scale=2; $coverage * 100 / ($coverage + $total)" | bc 2>/dev/null || echo "N/A")
+                if [ "$coverage" != "N/A" ] && [ "$total" != "N/A" ] && [ "$coverage" -gt 0 ] && [ "$total" -ge 0 ]; then
+                  percentage=$(awk "BEGIN {printf \"%.2f\", $coverage * 100 / ($coverage + $total)}" 2>/dev/null || echo "N/A")
                   echo "- 📈 **Coverage:** ${percentage}%" >> quality_report.md
                 fi
               fi
@@ -280,13 +298,21 @@ jobs:
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os}}-m2
+          restore-keys: ${{ runner.os }}-m2
 
       - name: Download Quality Reports
         uses: actions/download-artifact@v4
         with:
           name: quality-reports-${{ github.event.pull_request.number }}
           path: ./quality-reports/
+        continue-on-error: true
+
+      - name: Download Basic Analysis
+        uses: actions/download-artifact@v4
+        with:
+          name: basic-analysis-${{ github.event.pull_request.number }}
+          path: ./basic-analysis/
+        continue-on-error: true
 
       - name: Analyze changes
         id: analyze
@@ -300,11 +326,18 @@ jobs:
           echo "**Commits:** ${{ github.event.pull_request.commits }}" >> pr_analysis.md
           echo "" >> pr_analysis.md
           
-          # Add Copilot review status
-          echo "### 🤖 AI Code Review" >> pr_analysis.md
-          echo "- ✅ **GitHub Copilot Review:** Automated code review completed" >> pr_analysis.md
-          echo "- 📝 **Review Suggestions:** Check the 'Files changed' tab for inline Copilot suggestions" >> pr_analysis.md
-          echo "" >> pr_analysis.md
+          # Add Basic Analysis
+          if [ -f "./basic-analysis/ai_analysis.md" ]; then
+            echo "### 🤖 Basic Code Analysis" >> pr_analysis.md
+            echo "*(Detailed analysis available in job artifacts)*" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+            cat ./basic-analysis/ai_analysis.md | tail -n +3 >> pr_analysis.md
+            echo "" >> pr_analysis.md
+          else
+            echo "### 🤖 Basic Code Analysis" >> pr_analysis.md
+            echo "- ⚠️ **Basic analysis:** Not available - check analysis job logs" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+          fi
           
           # Add Quality Report
           if [ -f "./quality-reports/quality_report.md" ]; then
@@ -368,6 +401,9 @@ jobs:
         run: |
           echo "### 🧪 Test & Build Information" >> pr_analysis.md
           
+          # Analyze file changes for test metrics
+          git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} > changed_files.txt
+          
           # Run Maven test to get coverage info
           if mvn clean test -q; then
             echo "- ✅ **Tests Status:** All tests passing" >> pr_analysis.md
@@ -400,7 +436,7 @@ jobs:
           echo "### 📋 Review Guidelines" >> pr_analysis.md
           echo "" >> pr_analysis.md
           echo "**For Reviewers:**" >> pr_analysis.md
-          echo "- [ ] Review GitHub Copilot suggestions in the 'Files changed' tab" >> pr_analysis.md
+          echo "- [ ] Review basic code analysis suggestions above" >> pr_analysis.md
           echo "- [ ] Check Security tab for CodeQL findings" >> pr_analysis.md
           echo "- [ ] Review quality reports in job artifacts" >> pr_analysis.md
           echo "- [ ] Verify test coverage is adequate" >> pr_analysis.md
@@ -412,7 +448,6 @@ jobs:
           echo "- [ ] Documentation updated if needed" >> pr_analysis.md
           echo "- [ ] Performance impact considered" >> pr_analysis.md
           echo "- [ ] Breaking changes documented" >> pr_analysis.md
-          echo "- [ ] Address any Copilot-identified security concerns" >> pr_analysis.md
           echo "" >> pr_analysis.md
           
           echo "**Quality & Security Integration:**" >> pr_analysis.md
