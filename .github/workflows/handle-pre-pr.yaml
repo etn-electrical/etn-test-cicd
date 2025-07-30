@@ -172,61 +172,68 @@ jobs:
           add_plugin_if_missing() {
             local group_id=$1
             local artifact_id=$2
-            local plugin_xml=$3
+            local plugin_file=$3
             
             if ! grep -q "$group_id" pom.xml || ! grep -A 5 "$group_id" pom.xml | grep -q "$artifact_id"; then
               echo "Adding $artifact_id plugin..."
               if grep -q "<build>" pom.xml && grep -q "<plugins>" pom.xml; then
-                sed -i "/<\/plugins>/i\\$plugin_xml" pom.xml
+                # Insert before </plugins> closing tag
+                sed -i '/<\/plugins>/e cat '"$plugin_file" pom.xml
               else
-                sed -i "/<\/dependencies>/a\\
-          \\
-          <build>\\
-            <plugins>\\
-          $plugin_xml\\
-            </plugins>\\
-          </build>" pom.xml
+                # Add build section after dependencies
+                sed -i '/<\/dependencies>/r '"$plugin_file" pom.xml
+                sed -i '/<\/dependencies>/a\\n    <build>\n        <plugins>' pom.xml
+                echo '        </plugins>\n    </build>' >> temp_build_end.xml
+                sed -i '/<\/project>/e cat temp_build_end.xml' pom.xml
+                rm -f temp_build_end.xml
               fi
             fi
           }
           
-          # SpotBugs plugin XML
-          spotbugs_plugin='            <plugin>
-                  <groupId>com.github.spotbugs</groupId>
-                  <artifactId>spotbugs-maven-plugin</artifactId>
-                  <version>4.8.6.4</version>
-                  <configuration>
-                      <effort>Max</effort>
-                      <threshold>Low</threshold>
-                      <xmlOutput>true</xmlOutput>
-                      <failOnError>false</failOnError>
-                  </configuration>
-              </plugin>'
+          # Create SpotBugs plugin file
+          cat << 'SPOTBUGS_EOF' > spotbugs_plugin.xml
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.8.6.4</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <xmlOutput>true</xmlOutput>
+                    <failOnError>false</failOnError>
+                </configuration>
+            </plugin>
+          SPOTBUGS_EOF
           
-          # JaCoCo plugin XML
-          jacoco_plugin='            <plugin>
-                  <groupId>org.jacoco</groupId>
-                  <artifactId>jacoco-maven-plugin</artifactId>
-                  <version>0.8.12</version>
-                  <executions>
-                      <execution>
-                          <goals>
-                              <goal>prepare-agent</goal>
-                          </goals>
-                      </execution>
-                      <execution>
-                          <id>report</id>
-                          <phase>test</phase>
-                          <goals>
-                              <goal>report</goal>
-                          </goals>
-                      </execution>
-                  </executions>
-              </plugin>'
+          # Create JaCoCo plugin file
+          cat << 'JACOCO_EOF' > jacoco_plugin.xml
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+          JACOCO_EOF
           
           # Add plugins
-          add_plugin_if_missing "com.github.spotbugs" "spotbugs-maven-plugin" "$spotbugs_plugin"
-          add_plugin_if_missing "org.jacoco" "jacoco-maven-plugin" "$jacoco_plugin"
+          add_plugin_if_missing "com.github.spotbugs" "spotbugs-maven-plugin" "spotbugs_plugin.xml"
+          add_plugin_if_missing "org.jacoco" "jacoco-maven-plugin" "jacoco_plugin.xml"
+          
+          # Clean up temp files
+          rm -f spotbugs_plugin.xml jacoco_plugin.xml
           EOF
           
           chmod +x add_analysis_plugins.sh
