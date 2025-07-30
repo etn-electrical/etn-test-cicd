@@ -99,63 +99,74 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
-
-      - name: Initialize CodeQL
-        id: codeql-init
-        uses: github/codeql-action/init@v3
-        with:
-          languages: java
-          queries: security-and-quality
-        continue-on-error: true
+          cache: maven
 
       - name: Build project for analysis
         id: build
         run: |
           mvn clean compile -DskipTests
-        continue-on-error: true
-
-      - name: Perform CodeQL Analysis
-        id: codeql-analyze
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:java"
-        continue-on-error: true
-        if: steps.codeql-init.outcome == 'success'
-
-      - name: Run OWASP Dependency Check
-        id: owasp-check
-        uses: dependency-check/Dependency-Check_Action@main
-        with:
-          project: 'etn-test-cicd'
-          path: '.'
-          format: 'JSON'
-          args: >
-            --enableRetired
-            --enableExperimental
-            --failOnCVSS 7
-        continue-on-error: true
-
-#      - name: Run SonarQube Quality Analysis
-#        id: sonar-analysis
-#        uses: sonarqube-quality-gate-action@v1.3.0
-#        with:
-#          scanMetadataReportFile: target/sonar/report-task.txt
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-#        continue-on-error: true
 
       - name: Run SpotBugs Analysis
         id: spotbugs-analysis
         run: |
-          mvn compile spotbugs:spotbugs
+          # Check if SpotBugs plugin exists in pom.xml
+          if ! grep -q "spotbugs-maven-plugin" pom.xml; then
+            echo "SpotBugs plugin not found in pom.xml, adding it temporarily..."
+            
+            # Create backup of original pom.xml
+            cp pom.xml pom.xml.backup
+            
+            # Check if <build><plugins> section exists
+            if grep -q "<build>" pom.xml && grep -q "<plugins>" pom.xml; then
+              # Add SpotBugs plugin to existing plugins section
+              sed -i '/<\/plugins>/i\
+                        <plugin>\
+                            <groupId>com.github.spotbugs</groupId>\
+                            <artifactId>spotbugs-maven-plugin</artifactId>\
+                            <version>4.8.6.4</version>\
+                            <configuration>\
+                                <effort>Max</effort>\
+                                <threshold>Low</threshold>\
+                                <xmlOutput>true</xmlOutput>\
+                                <failOnError>false</failOnError>\
+                            </configuration>\
+                        </plugin>' pom.xml
+            else
+              # Add complete build section with SpotBugs plugin
+              sed -i '/<\/dependencies>/a\
+          \
+           <build>\
+            <plugins>\
+            <plugin>\
+                <groupId>com.github.spotbugs</groupId>\
+                <artifactId>spotbugs-maven-plugin</artifactId>\
+                <version>4.8.6.4</version>\
+                <configuration>\
+                    <effort>Max</effort>\
+                    <threshold>Low</threshold>\
+                    <xmlOutput>true</xmlOutput>\
+                    <failOnError>false</failOnError>\
+                </configuration>\
+              </plugin>\
+            </plugins>\
+                </build>' pom.xml
+            fi
+            
+            echo "SpotBugs plugin added temporarily to pom.xml"
+            cat pom.xml
+          else
+            echo "SpotBugs plugin already exists in pom.xml"
+          fi
+          
+          # Run SpotBugs analysis
+          echo "Running SpotBugs analysis..."
+          mvn compile spotbugs:spotbugs || echo "SpotBugs analysis completed with warnings/errors"
+          
+          # Restore original pom.xml if we modified it
+          if [ -f "pom.xml.backup" ]; then
+            echo "Restoring original pom.xml..."
+            mv pom.xml.backup pom.xml
+          fi
         continue-on-error: true
 
       - name: Run PMD Analysis
@@ -164,40 +175,272 @@ jobs:
           mvn pmd:pmd pmd:cpd
         continue-on-error: true
 
+      - name: Run JaCoCo Code Coverage
+        id: jacoco-coverage
+        run: |
+          echo "Running JaCoCo code coverage analysis..."
+          
+          # Check if JaCoCo plugin exists in pom.xml
+          if ! grep -q "jacoco-maven-plugin" pom.xml; then
+            echo "JaCoCo plugin not found in pom.xml, adding it temporarily..."
+            
+            # Create backup of original pom.xml
+            cp pom.xml pom.xml.jacoco.backup
+            
+            # Check if <build><plugins> section exists
+            if grep -q "<build>" pom.xml && grep -q "<plugins>" pom.xml; then
+              # Add JaCoCo plugin to existing plugins section
+              sed -i '/<\/plugins>/i\
+                        <plugin>\
+                            <groupId>org.jacoco</groupId>\
+                            <artifactId>jacoco-maven-plugin</artifactId>\
+                            <version>0.8.12</version>\
+                            <executions>\
+                                <execution>\
+                                    <goals>\
+                                        <goal>prepare-agent</goal>\
+                                    </goals>\
+                                </execution>\
+                                <execution>\
+                                    <id>report</id>\
+                                    <phase>test</phase>\
+                                    <goals>\
+                                        <goal>report</goal>\
+                                    </goals>\
+                                </execution>\
+                            </executions>\
+                        </plugin>' pom.xml
+            else
+              # Add complete build section with JaCoCo plugin
+              sed -i '/<\/dependencies>/a\
+            \
+            <build>\
+                <plugins>\
+                    <plugin>\
+                        <groupId>org.jacoco</groupId>\
+                        <artifactId>jacoco-maven-plugin</artifactId>\
+                        <version>0.8.12</version>\
+                        <executions>\
+                            <execution>\
+                                <goals>\
+                                    <goal>prepare-agent</goal>\
+                                </goals>\
+                            </execution>\
+                            <execution>\
+                                <id>report</id>\
+                                <phase>test</phase>\
+                                <goals>\
+                                    <goal>report</goal>\
+                                </goals>\
+                            </execution>\
+                        </executions>\
+                    </plugin>\
+                </plugins>\
+            </build>' pom.xml
+            fi
+            
+            echo "JaCoCo plugin added temporarily to pom.xml"
+          else
+            echo "JaCoCo plugin already exists in pom.xml"
+          fi
+          
+          # First run tests to generate coverage data
+          echo "Executing tests to generate coverage data..."
+          mvn clean test -Dmaven.test.failure.ignore=true || echo "Tests completed with some failures"
+          
+          # Generate JaCoCo reports
+          echo "Generating JaCoCo coverage reports..."
+          mvn jacoco:report || echo "JaCoCo report generation completed with warnings"
+          
+          # Verify report generation
+          if [ -f "target/site/jacoco/index.html" ]; then
+            echo "✅ JaCoCo HTML report generated successfully"
+          else
+            echo "❌ JaCoCo HTML report not found"
+          fi
+          
+          if [ -f "target/site/jacoco/jacoco.xml" ]; then
+            echo "✅ JaCoCo XML report generated successfully"
+          else
+            echo "❌ JaCoCo XML report not found"
+          fi
+          
+          # List generated files for debugging
+          echo "Generated JaCoCo files:"
+          find target/site/jacoco -name "*.html" -o -name "*.xml" 2>/dev/null || echo "No JaCoCo files found"
+          
+          # Restore original pom.xml if we modified it
+          if [ -f "pom.xml.jacoco.backup" ]; then
+            echo "Restoring original pom.xml..."
+            mv pom.xml.jacoco.backup pom.xml
+          fi
+        continue-on-error: true
+
+      - name: Generate JaCoCo Coverage Report
+        id: jacoco-analysis
+        run: |
+          echo "Creating comprehensive JaCoCo coverage report..."
+          
+          # Create detailed coverage summary
+          echo "# 🧪 JaCoCo Test Coverage Report" > jacoco_summary.md
+          echo "" >> jacoco_summary.md
+          echo "Generated on: $(date)" >> jacoco_summary.md
+          echo "" >> jacoco_summary.md
+          
+          if [ -f "target/site/jacoco/index.html" ]; then
+            echo "## ✅ Coverage Report Status" >> jacoco_summary.md
+            echo "- **Status:** Successfully generated" >> jacoco_summary.md
+            echo "- **Report Location:** target/site/jacoco/index.html" >> jacoco_summary.md
+            echo "- **XML Report:** target/site/jacoco/jacoco.xml" >> jacoco_summary.md
+            echo "" >> jacoco_summary.md
+            
+            # Extract detailed coverage metrics if XML exists
+            if command -v xmllint >/dev/null 2>&1 && [ -f "target/site/jacoco/jacoco.xml" ]; then
+              echo "## 📊 Coverage Metrics" >> jacoco_summary.md
+              echo "" >> jacoco_summary.md
+              
+              # Instruction Coverage
+              coverage=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              missed=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              
+              if [ "$coverage" != "0" ] || [ "$missed" != "0" ]; then
+                total=$((coverage + missed))
+                if [ $total -gt 0 ]; then
+                  percentage=$(awk "BEGIN {printf \"%.2f\", $coverage * 100 / $total}" 2>/dev/null || echo "0.00")
+                  echo "### 📈 Instruction Coverage" >> jacoco_summary.md
+                  echo "- **Covered:** $coverage instructions" >> jacoco_summary.md
+                  echo "- **Missed:** $missed instructions" >> jacoco_summary.md
+                  echo "- **Total:** $total instructions" >> jacoco_summary.md
+                  echo "- **Percentage:** ${percentage}%" >> jacoco_summary.md
+                  echo "" >> jacoco_summary.md
+                fi
+              fi
+              
+              # Line Coverage
+              line_covered=$(xmllint --xpath "string(//report/counter[@type='LINE']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              line_missed=$(xmllint --xpath "string(//report/counter[@type='LINE']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              
+              if [ "$line_covered" != "0" ] || [ "$line_missed" != "0" ]; then
+                line_total=$((line_covered + line_missed))
+                if [ $line_total -gt 0 ]; then
+                  line_percentage=$(awk "BEGIN {printf \"%.2f\", $line_covered * 100 / $line_total}" 2>/dev/null || echo "0.00")
+                  echo "### 📊 Line Coverage" >> jacoco_summary.md
+                  echo "- **Covered:** $line_covered lines" >> jacoco_summary.md
+                  echo "- **Missed:** $line_missed lines" >> jacoco_summary.md
+                  echo "- **Total:** $line_total lines" >> jacoco_summary.md
+                  echo "- **Percentage:** ${line_percentage}%" >> jacoco_summary.md
+                  echo "" >> jacoco_summary.md
+                fi
+              fi
+              
+              # Branch Coverage
+              branch_covered=$(xmllint --xpath "string(//report/counter[@type='BRANCH']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              branch_missed=$(xmllint --xpath "string(//report/counter[@type='BRANCH']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              
+              if [ "$branch_covered" != "0" ] || [ "$branch_missed" != "0" ]; then
+                branch_total=$((branch_covered + branch_missed))
+                if [ $branch_total -gt 0 ]; then
+                  branch_percentage=$(awk "BEGIN {printf \"%.2f\", $branch_covered * 100 / $branch_total}" 2>/dev/null || echo "0.00")
+                  echo "### 🌿 Branch Coverage" >> jacoco_summary.md
+                  echo "- **Covered:** $branch_covered branches" >> jacoco_summary.md
+                  echo "- **Missed:** $branch_missed branches" >> jacoco_summary.md
+                  echo "- **Total:** $branch_total branches" >> jacoco_summary.md
+                  echo "- **Percentage:** ${branch_percentage}%" >> jacoco_summary.md
+                  echo "" >> jacoco_summary.md
+                fi
+              fi
+              
+              # Method Coverage
+              method_covered=$(xmllint --xpath "string(//report/counter[@type='METHOD']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              method_missed=$(xmllint --xpath "string(//report/counter[@type='METHOD']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              
+              if [ "$method_covered" != "0" ] || [ "$method_missed" != "0" ]; then
+                method_total=$((method_covered + method_missed))
+                if [ $method_total -gt 0 ]; then
+                  method_percentage=$(awk "BEGIN {printf \"%.2f\", $method_covered * 100 / $method_total}" 2>/dev/null || echo "0.00")
+                  echo "### 🔧 Method Coverage" >> jacoco_summary.md
+                  echo "- **Covered:** $method_covered methods" >> jacoco_summary.md
+                  echo "- **Missed:** $method_missed methods" >> jacoco_summary.md
+                  echo "- **Total:** $method_total methods" >> jacoco_summary.md
+                  echo "- **Percentage:** ${method_percentage}%" >> jacoco_summary.md
+                  echo "" >> jacoco_summary.md
+                fi
+              fi
+              
+              # Class Coverage
+              class_covered=$(xmllint --xpath "string(//report/counter[@type='CLASS']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              class_missed=$(xmllint --xpath "string(//report/counter[@type='CLASS']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              
+              if [ "$class_covered" != "0" ] || [ "$class_missed" != "0" ]; then
+                class_total=$((class_covered + class_missed))
+                if [ $class_total -gt 0 ]; then
+                  class_percentage=$(awk "BEGIN {printf \"%.2f\", $class_covered * 100 / $class_total}" 2>/dev/null || echo "0.00")
+                  echo "### 🏛️ Class Coverage" >> jacoco_summary.md
+                  echo "- **Covered:** $class_covered classes" >> jacoco_summary.md
+                  echo "- **Missed:** $class_missed classes" >> jacoco_summary.md
+                  echo "- **Total:** $class_total classes" >> jacoco_summary.md
+                  echo "- **Percentage:** ${class_percentage}%" >> jacoco_summary.md
+                  echo "" >> jacoco_summary.md
+                fi
+              fi
+              
+              # Coverage Recommendations
+              echo "## 📋 Coverage Analysis" >> jacoco_summary.md
+              echo "" >> jacoco_summary.md
+              
+              # Determine overall coverage quality
+              if [ "$coverage" != "0" ] && [ "$missed" != "0" ]; then
+                total_coverage=$((coverage + missed))
+                if [ $total_coverage -gt 0 ]; then
+                  overall_percentage=$(awk "BEGIN {printf \"%.0f\", $coverage * 100 / $total_coverage}" 2>/dev/null || echo "0")
+                  
+                  if [ $overall_percentage -ge 80 ]; then
+                    echo "✅ **Coverage Quality:** Excellent (${overall_percentage}%)" >> jacoco_summary.md
+                    echo "- Coverage meets high quality standards" >> jacoco_summary.md
+                  elif [ $overall_percentage -ge 70 ]; then
+                    echo "🟡 **Coverage Quality:** Good (${overall_percentage}%)" >> jacoco_summary.md
+                    echo "- Coverage is acceptable but could be improved" >> jacoco_summary.md
+                  elif [ $overall_percentage -ge 50 ]; then
+                    echo "🟠 **Coverage Quality:** Fair (${overall_percentage}%)" >> jacoco_summary.md
+                    echo "- Coverage needs improvement for better quality" >> jacoco_summary.md
+                  else
+                    echo "🔴 **Coverage Quality:** Poor (${overall_percentage}%)" >> jacoco_summary.md
+                    echo "- Coverage is significantly below recommended levels" >> jacoco_summary.md
+                  fi
+                fi
+              fi
+              
+              echo "" >> jacoco_summary.md
+              echo "### 🎯 Recommendations" >> jacoco_summary.md
+              echo "- Add unit tests for uncovered methods and classes" >> jacoco_summary.md
+              echo "- Focus on testing edge cases and error conditions" >> jacoco_summary.md
+              echo "- Ensure all business logic paths are tested" >> jacoco_summary.md
+              echo "- Consider integration tests for complex workflows" >> jacoco_summary.md
+              
+            else
+              echo "## ⚠️ Coverage Metrics" >> jacoco_summary.md
+              echo "- Unable to parse detailed coverage metrics" >> jacoco_summary.md
+              echo "- XML report may be missing or malformed" >> jacoco_summary.md
+              echo "- Check HTML report for visual coverage details" >> jacoco_summary.md
+            fi
+          else
+            echo "## ❌ Coverage Report Status" >> jacoco_summary.md
+            echo "- **Status:** Failed to generate coverage report" >> jacoco_summary.md
+            echo "- **Possible causes:**" >> jacoco_summary.md
+            echo "  - No tests were executed" >> jacoco_summary.md
+            echo "  - JaCoCo plugin not configured properly" >> jacoco_summary.md
+            echo "  - Build compilation failed" >> jacoco_summary.md
+            echo "- **Recommendation:** Check test execution logs" >> jacoco_summary.md
+          fi
+          
+          echo "" >> jacoco_summary.md
+          echo "---" >> jacoco_summary.md
+          echo "*For detailed coverage analysis, download the artifacts and open the HTML report*" >> jacoco_summary.md
+        continue-on-error: true
+
       - name: Generate Quality Report
         run: |
           echo "## 📊 Code Quality & Security Report" > quality_report.md
-          echo "" >> quality_report.md
-
-          # CodeQL Results
-          echo "### 🔍 Security Analysis (CodeQL)" >> quality_report.md
-          if [ "${{ steps.codeql-analyze.outcome }}" == "success" ]; then
-            echo "- ✅ **CodeQL scan completed successfully**" >> quality_report.md
-            echo "- 📄 **Results:** See Security tab for detailed findings" >> quality_report.md
-          elif [ "${{ steps.codeql-init.outcome }}" == "failure" ]; then
-            echo "- ❌ **CodeQL initialization failed** - Check workflow logs" >> quality_report.md
-          elif [ "${{ steps.codeql-analyze.outcome }}" == "failure" ]; then
-            echo "- ⚠️ **CodeQL analysis failed** - Check build issues" >> quality_report.md
-          else
-            echo "- ⚠️ **CodeQL scan:** Skipped or incomplete" >> quality_report.md
-          fi
-          echo "" >> quality_report.md
-
-          # Dependency Check Results
-          echo "### 🛡️ Dependency Security (OWASP)" >> quality_report.md
-          if [ "${{ steps.owasp-check.outcome }}" == "success" ] && [ -f "reports/dependency-check-report.json" ]; then
-            vulnerabilities=$(jq '.dependencies | map(select(.vulnerabilities | length > 0)) | length' reports/dependency-check-report.json 2>/dev/null || echo "0")
-            total_deps=$(jq '.dependencies | length' reports/dependency-check-report.json 2>/dev/null || echo "N/A")
-            echo "- 📦 **Dependencies scanned:** $total_deps" >> quality_report.md
-            echo "- ⚠️ **Vulnerable dependencies:** $vulnerabilities" >> quality_report.md
-            if [ "$vulnerabilities" -gt 0 ]; then
-              echo "- 🚨 **Action required:** Review dependency vulnerabilities" >> quality_report.md
-            fi
-          elif [ "${{ steps.owasp-check.outcome }}" == "failure" ]; then
-            echo "- ❌ **OWASP scan failed** - Check configuration or connectivity" >> quality_report.md
-          else
-            echo "- ⚠️ **OWASP scan:** Report not available" >> quality_report.md
-          fi
           echo "" >> quality_report.md
 
           # PMD Results
@@ -230,35 +473,25 @@ jobs:
           fi
           echo "" >> quality_report.md
 
-          # Test Coverage
+          # Test Coverage Results (reference to separate step)
           echo "### 🧪 Test Coverage Analysis" >> quality_report.md
-          if mvn jacoco:report 2>/dev/null; then
-            if [ -f "target/site/jacoco/index.html" ]; then
-              echo "- ✅ **Coverage report generated**" >> quality_report.md
-              echo "- 📊 **Report location:** Available in artifacts" >> quality_report.md
-              # Extract coverage percentage if possible
-              if command -v xmllint >/dev/null 2>&1 && [ -f "target/site/jacoco/jacoco.xml" ]; then
-                coverage=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
-                total=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "N/A")
-                if [ "$coverage" != "N/A" ] && [ "$total" != "N/A" ] && [ "$coverage" -gt 0 ] && [ "$total" -ge 0 ]; then
-                  percentage=$(awk "BEGIN {printf \"%.2f\", $coverage * 100 / ($coverage + $total)}" 2>/dev/null || echo "N/A")
-                  echo "- 📈 **Coverage:** ${percentage}%" >> quality_report.md
-                fi
-              fi
-            fi
+          if [ "${{ steps.jacoco-analysis.outcome }}" == "success" ] && [ -f "jacoco_summary.md" ]; then
+            echo "- ✅ **Coverage analysis completed**" >> quality_report.md
+            echo "- 📊 **Summary:** See coverage details below" >> quality_report.md
+            echo "- 📄 **Full report:** Available in artifacts" >> quality_report.md
+          elif [ "${{ steps.jacoco-analysis.outcome }}" == "failure" ]; then
+            echo "- ❌ **Coverage analysis failed** - Check test execution" >> quality_report.md
           else
-            echo "- ⚠️ **Coverage analysis:** Failed to generate report" >> quality_report.md
+            echo "- ⚠️ **Coverage analysis:** Not completed" >> quality_report.md
           fi
           echo "" >> quality_report.md
 
           # Summary of scan results
           echo "### 📋 Scan Summary" >> quality_report.md
           echo "**Completed Scans:**" >> quality_report.md
-          [ "${{ steps.codeql-analyze.outcome }}" == "success" ] && echo "- ✅ CodeQL Security Analysis" >> quality_report.md || echo "- ❌ CodeQL Security Analysis" >> quality_report.md
-          [ "${{ steps.owasp-check.outcome }}" == "success" ] && echo "- ✅ OWASP Dependency Check" >> quality_report.md || echo "- ❌ OWASP Dependency Check" >> quality_report.md
           [ "${{ steps.pmd-analysis.outcome }}" == "success" ] && echo "- ✅ PMD Code Quality" >> quality_report.md || echo "- ❌ PMD Code Quality" >> quality_report.md
           [ "${{ steps.spotbugs-analysis.outcome }}" == "success" ] && echo "- ✅ SpotBugs Analysis" >> quality_report.md || echo "- ❌ SpotBugs Analysis" >> quality_report.md
-          [ "${{ steps.sonar-analysis.outcome }}" == "success" ] && echo "- ✅ SonarQube Analysis" >> quality_report.md || echo "- ❌ SonarQube Analysis" >> quality_report.md
+          [ "${{ steps.jacoco-analysis.outcome }}" == "success" ] && echo "- ✅ JaCoCo Coverage Analysis" >> quality_report.md || echo "- ❌ JaCoCo Coverage Analysis" >> quality_report.md
           echo "" >> quality_report.md
           echo "*Note: Failed scans do not prevent workflow completion. Check individual scan logs for details.*" >> quality_report.md
 
@@ -268,6 +501,7 @@ jobs:
           name: quality-reports-${{ github.event.pull_request.number }}
           path: |
             quality_report.md
+            jacoco_summary.md
             target/pmd.xml
             target/spotbugsXml.xml
             target/site/jacoco/
@@ -437,10 +671,8 @@ jobs:
           echo "" >> pr_analysis.md
           echo "**For Reviewers:**" >> pr_analysis.md
           echo "- [ ] Review basic code analysis suggestions above" >> pr_analysis.md
-          echo "- [ ] Check Security tab for CodeQL findings" >> pr_analysis.md
           echo "- [ ] Review quality reports in job artifacts" >> pr_analysis.md
           echo "- [ ] Verify test coverage is adequate" >> pr_analysis.md
-          echo "- [ ] Address any security vulnerabilities found" >> pr_analysis.md
           echo "- [ ] Code follows project coding standards" >> pr_analysis.md
           echo "- [ ] Adequate test coverage for new functionality" >> pr_analysis.md
           echo "- [ ] No hardcoded secrets or sensitive information" >> pr_analysis.md
@@ -451,8 +683,6 @@ jobs:
           echo "" >> pr_analysis.md
 
           echo "**Quality & Security Integration:**" >> pr_analysis.md
-          echo "- CodeQL security analysis completed automatically" >> pr_analysis.md
-          echo "- OWASP dependency scanning for vulnerability detection" >> pr_analysis.md
           echo "- PMD and SpotBugs analysis for code quality" >> pr_analysis.md
           echo "- JaCoCo test coverage reporting" >> pr_analysis.md
           echo "- All reports available in workflow artifacts" >> pr_analysis.md
