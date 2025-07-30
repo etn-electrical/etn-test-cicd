@@ -163,21 +163,6 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Prepare pom.xml for analysis
-        run: |
-          # Use existing script if available, otherwise modify pom.xml inline
-          if [ -f "scripts/check-and-update-pom.sh" ]; then
-            echo "Using existing pom.xml preparation script..."
-            chmod +x scripts/check-and-update-pom.sh
-            ./scripts/check-and-update-pom.sh
-          else
-            echo "Preparing pom.xml for analysis tools..."
-            cp pom.xml pom.xml.original
-            
-            # Add required plugins if missing
-            ./add_analysis_plugins.sh
-          fi
-
       - name: Create analysis plugins helper
         run: |
           cat << 'EOF' > add_analysis_plugins.sh
@@ -245,6 +230,21 @@ jobs:
           EOF
           
           chmod +x add_analysis_plugins.sh
+
+      - name: Prepare pom.xml for analysis
+        run: |
+          # Use existing script if available, otherwise modify pom.xml inline
+          if [ -f "scripts/check-and-update-pom.sh" ]; then
+            echo "Using existing pom.xml preparation script..."
+            chmod +x scripts/check-and-update-pom.sh
+            ./scripts/check-and-update-pom.sh
+          else
+            echo "Preparing pom.xml for analysis tools..."
+            cp pom.xml pom.xml.original
+            
+            # Add required plugins if missing
+            ./add_analysis_plugins.sh
+          fi
 
       - name: Build project for analysis
         run: |
