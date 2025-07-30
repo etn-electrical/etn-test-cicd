@@ -121,26 +121,26 @@ jobs:
           mvn clean compile -DskipTests
         continue-on-error: true
 
-#      - name: Perform CodeQL Analysis
-#        id: codeql-analyze
-#        uses: github/codeql-action/analyze@v3
-#        with:
-#          category: "/language:java"
-#        continue-on-error: true
-#        if: steps.codeql-init.outcome == 'success'
+      - name: Perform CodeQL Analysis
+        id: codeql-analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:java"
+        continue-on-error: true
+        if: steps.codeql-init.outcome == 'success'
 
-#      - name: Run OWASP Dependency Check
-#        id: owasp-check
-#        uses: dependency-check/Dependency-Check_Action@main
-#        with:
-#          project: 'etn-test-cicd'
-#          path: '.'
-#          format: 'JSON'
-#          args: >
-#            --enableRetired
-#            --enableExperimental
-#            --failOnCVSS 7
-#        continue-on-error: true
+      - name: Run OWASP Dependency Check
+        id: owasp-check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'etn-test-cicd'
+          path: '.'
+          format: 'JSON'
+          args: >
+            --enableRetired
+            --enableExperimental
+            --failOnCVSS 7
+        continue-on-error: true
 
 #      - name: Run SonarQube Quality Analysis
 #        id: sonar-analysis
