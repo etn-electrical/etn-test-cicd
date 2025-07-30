@@ -303,7 +303,7 @@ jobs:
               extract_coverage "CLASS" "🏛️" "Class"
               
               # Overall assessment
-              echo "## � Coverage Analysis" >> jacoco_summary.md
+              echo "## 📊 Coverage Analysis" >> jacoco_summary.md
               echo "" >> jacoco_summary.md
               
               # Get overall percentage for assessment
