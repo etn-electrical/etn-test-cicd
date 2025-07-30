@@ -41,31 +41,207 @@ jobs:
       - name: Calculate version
         id: version
         run: |
-          # Get current version from pom.xml
-          CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          BASE_VERSION=$(echo $CURRENT_VERSION | sed 's/-SNAPSHOT//')
+          # Helper functions
+          get_base_version() {
+            local latest_tag=$(git tag -l "v*.*.*" --sort=-version:refname | head -n 1)
+            if [ -z "$latest_tag" ]; then
+              echo "No version tags found matching v*.*.* pattern, using default version 1.0.0" >&2
+              echo "1.0.0"
+            else
+              local base_version=$(echo $latest_tag | sed 's/^v//')
+              echo "Found latest version tag: $latest_tag -> base version: $base_version" >&2
+              echo "$base_version"
+            fi
+          }
           
-          # Determine version based on branch
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            # Main branch - use semantic version
-            VERSION="${BASE_VERSION}"
+          get_branch_info() {
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              echo "Pull request detected:" >&2
+              echo "  Source branch: ${{ github.head_ref }}" >&2
+              echo "  Target branch: ${{ github.base_ref }}" >&2
+              echo "${{ github.head_ref }}|${{ github.base_ref }}|${{ github.base_ref }}"
+            else
+              echo "Using current branch: ${{ github.ref_name }}" >&2
+              echo "${{ github.ref_name }}||${{ github.ref_name }}"
+            fi
+          }
+          
+          extract_release_version() {
+            local branch="$1"
+            if [[ "$branch" =~ ^release/([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "${BASH_REMATCH[1]}|${BASH_REMATCH[2]}|${BASH_REMATCH[3]}"
+            else
+              echo "||"
+            fi
+          }
+          
+          increment_version() {
+            local base_version="$1"
+            local increment_type="$2"
+            local release_major="$3"
+            local release_minor="$4"
+            
+            IFS='.' read -r major minor patch <<< "$base_version"
+            
+            case "$increment_type" in
+              "minor_from_release")
+                echo "${release_major}.$((release_minor + 1)).0"
+                ;;
+              "minor")
+                echo "${major}.$((minor + 1)).0"
+                ;;
+              "patch")
+                echo "${major}.${minor}.$((patch + 1))"
+                ;;
+              *)
+                echo "$base_version"
+                ;;
+            esac
+          }
+          
+          build_version_suffix() {
+            local suffix_type="$1"
+            local pr_number="$2"
+            local extra="$3"
+            
+            case "$suffix_type" in
+              "pr")
+                echo "-pr.${pr_number}"
+                ;;
+              "final_pr")
+                echo "-final.pr.${pr_number}"
+                ;;
+              "hotfix_pr")
+                echo "-hotfix.pr.${pr_number}"
+                ;;
+              "rc")
+                echo "-rc.${extra}"
+                ;;
+              "dev")
+                echo "-dev.${extra}"
+                ;;
+              "hotfix")
+                echo "-hotfix.${extra}"
+                ;;
+              "branch_pr")
+                echo "-${extra}.pr.${pr_number}"
+                ;;
+              "branch")
+                echo "-${extra}"
+                ;;
+              *)
+                echo ""
+                ;;
+            esac
+          }
+          
+          # Main logic
+          BASE_VERSION=$(get_base_version)
+          IFS='|' read -r SOURCE_BRANCH TARGET_BRANCH BRANCH_NAME <<< "$(get_branch_info)"
+          
+          IS_RELEASE="false"
+          VERSION=""
+          
+          # Determine the working branch (target branch for PRs, current branch otherwise)
+          WORKING_BRANCH="$TARGET_BRANCH"
+          [[ -z "$WORKING_BRANCH" ]] && WORKING_BRANCH="$BRANCH_NAME"
+          
+          # Process based on target branch and source branch type
+          if [[ "$WORKING_BRANCH" == "main" ]]; then
             IS_RELEASE="true"
-          elif [[ "${{ github.ref }}" =~ refs/heads/release/.* ]]; then
-            # Release branch - use RC version
-            RC_NUMBER=$(git rev-list --count HEAD)
-            VERSION="${BASE_VERSION}-rc.${RC_NUMBER}"
-            IS_RELEASE="false"
-          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            # Develop branch - use snapshot with build number
-            BUILD_NUMBER=$(git rev-list --count HEAD)
-            VERSION="${BASE_VERSION}-dev.${BUILD_NUMBER}"
-            IS_RELEASE="false"
+            
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              if [[ "$SOURCE_BRANCH" =~ ^release/.* ]]; then
+                # Release to main PR
+                IFS='|' read -r rel_major rel_minor rel_patch <<< "$(extract_release_version "$SOURCE_BRANCH")"
+                if [[ -n "$rel_major" && -n "$rel_minor" ]]; then
+                  VERSION=$(increment_version "$BASE_VERSION" "minor_from_release" "$rel_major" "$rel_minor")
+                  echo "Release to main PR detected - using major $rel_major from release branch, incrementing minor"
+                else
+                  VERSION=$(increment_version "$BASE_VERSION" "minor")
+                  echo "Release to main PR detected - incrementing minor version from base"
+                fi
+                
+              elif [[ "$SOURCE_BRANCH" =~ ^hotfix/.* ]]; then
+                # Hotfix branch handling (based on source branch type)
+                base_version=$(increment_version "$BASE_VERSION" "patch")
+                
+                if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+                  VERSION="${base_version}$(build_version_suffix "hotfix_pr" "${{ github.event.pull_request.number }}")"
+                else
+                  commit_hash=$(git rev-parse --short HEAD)
+                  VERSION="${base_version}$(build_version_suffix "hotfix" "" "$commit_hash")"
+                fi
+                
+              else
+                # Other branch to main PR - patch increment
+                VERSION=$(increment_version "$BASE_VERSION" "patch")
+              fi
+            else
+              # Regular main branch push
+              VERSION=$(increment_version "$BASE_VERSION" "patch")
+            fi
+            
+          elif [[ "$SOURCE_BRANCH" =~ ^release/.* ]]; then
+            # Release branch handling (based on source branch type)
+            if [[ "$SOURCE_BRANCH" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              release_version="${BASH_REMATCH[1]}"
+              echo "Using version from release branch name: $release_version"
+              
+              if [[ "${{ github.event_name }}" == "pull_request" && "$TARGET_BRANCH" == "main" ]]; then
+                # Release to main PR
+                IFS='|' read -r rel_major rel_minor rel_patch <<< "$(extract_release_version "$SOURCE_BRANCH")"
+                if [[ -n "$rel_major" && -n "$rel_minor" ]]; then
+                  base_version=$(increment_version "$BASE_VERSION" "minor_from_release" "$rel_major" "$rel_minor")
+                  VERSION="${base_version}$(build_version_suffix "final_pr" "${{ github.event.pull_request.number }}")"
+                else
+                  base_version=$(increment_version "$BASE_VERSION" "minor")
+                  VERSION="${base_version}$(build_version_suffix "final_pr" "${{ github.event.pull_request.number }}")"
+                fi
+              elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+                # PR to release branch
+                VERSION="${release_version}$(build_version_suffix "pr" "${{ github.event.pull_request.number }}")"
+              else
+                # Direct push to release branch
+                rc_number=$(git rev-list --count HEAD)
+                VERSION="${release_version}$(build_version_suffix "rc" "" "$rc_number")"
+              fi
+            else
+              # Release branch without version in name
+              rc_number=$(git rev-list --count HEAD)
+              VERSION="${BASE_VERSION}$(build_version_suffix "rc" "" "$rc_number")"
+            fi
+            
+          elif [[ "$WORKING_BRANCH" == "develop" ]]; then
+            # Develop branch
+            build_number=$(git rev-list --count HEAD)
+            VERSION="${BASE_VERSION}$(build_version_suffix "dev" "" "$build_number")"
+            
           else
-            # Feature/hotfix branches - use snapshot with commit hash
-            COMMIT_HASH=$(git rev-parse --short HEAD)
-            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9]/-/g')
-            VERSION="${BASE_VERSION}-${BRANCH_NAME}.${COMMIT_HASH}"
-            IS_RELEASE="false"
+            # Feature and other branches
+            commit_hash=$(git rev-parse --short HEAD)
+            clean_branch_name=$(echo "$WORKING_BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+            
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              pr_number="${{ github.event.pull_request.number }}"
+              clean_target=$(echo "$TARGET_BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+              
+              if [[ "$TARGET_BRANCH" == "main" ]]; then
+                clean_source_name=$(echo "$SOURCE_BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+                VERSION="${BASE_VERSION}$(build_version_suffix "branch_pr" "$pr_number" "${clean_source_name}.to-main")"
+              elif [[ "$TARGET_BRANCH" == "develop" ]]; then
+                clean_source_name=$(echo "$SOURCE_BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+                VERSION="${BASE_VERSION}$(build_version_suffix "branch_pr" "$pr_number" "${clean_source_name}.to-dev")"
+              elif [[ "$TARGET_BRANCH" =~ ^release/.* ]]; then
+                clean_source_name=$(echo "$SOURCE_BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+                VERSION="${BASE_VERSION}$(build_version_suffix "branch_pr" "$pr_number" "${clean_source_name}.to-release")"
+              else
+                clean_source_name=$(echo "$SOURCE_BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+                VERSION="${BASE_VERSION}$(build_version_suffix "branch_pr" "$pr_number" "${clean_source_name}.to-${clean_target}")"
+              fi
+            else
+              VERSION="${BASE_VERSION}$(build_version_suffix "branch" "" "${clean_branch_name}.${commit_hash}")"
+            fi
           fi
           
           echo "Calculated version: $VERSION"
