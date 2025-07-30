@@ -318,7 +318,7 @@ jobs:
                   if [ $percentage -ge 80 ]; then
                     echo "✅ **Coverage Quality:** Excellent (${percentage}%)" >> jacoco_summary.md
                   elif [ $percentage -ge 70 ]; then
-                    echo "� **Coverage Quality:** Good (${percentage}%)" >> jacoco_summary.md
+                    echo "🟡 **Coverage Quality:** Good (${percentage}%)" >> jacoco_summary.md
                   elif [ $percentage -ge 50 ]; then
                     echo "🟠 **Coverage Quality:** Fair (${percentage}%)" >> jacoco_summary.md
                   else
