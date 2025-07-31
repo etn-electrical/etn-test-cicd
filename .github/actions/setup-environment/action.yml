@@ -1,0 +1,94 @@
+name: Calculate Environment
+
+on:
+  workflow_call:
+    inputs:
+      branch_name:
+        description: 'The branch name to determine environment for'
+        required: true
+        type: string
+    outputs:
+      environment:
+        description: 'The determined environment name'
+        value: ${{ jobs.calculate-environment.outputs.environment }}
+      is_production:
+        description: 'Whether this is a production environment'
+        value: ${{ jobs.calculate-environment.outputs.is_production }}
+      is_staging:
+        description: 'Whether this is a staging environment'
+        value: ${{ jobs.calculate-environment.outputs.is_staging }}
+      is_development:
+        description: 'Whether this is a development environment'
+        value: ${{ jobs.calculate-environment.outputs.is_development }}
+      is_testing:
+        description: 'Whether this is a testing environment'
+        value: ${{ jobs.calculate-environment.outputs.is_testing }}
+      is_uat:
+        description: 'Whether this is a UAT environment'
+        value: ${{ jobs.calculate-environment.outputs.is_uat }}
+      deploy:
+        description: 'Whether to deploy to this environment'
+        value: ${{ jobs.calculate-environment.outputs.deploy }}
+
+jobs:
+  calculate-environment:
+    name: Calculate Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      is_production: ${{ steps.set-env.outputs.is_production }}
+      is_staging: ${{ steps.set-env.outputs.is_staging }}
+      is_uat: ${{ steps.set-env.outputs.is_uat }}
+      is_development: ${{ steps.set-env.outputs.is_development }}
+      is_testing: ${{ steps.set-env.outputs.is_testing }}
+      deploy: ${{ steps.set-env.outputs.deploy }}
+    steps:
+      - name: Set environment based on branch
+        id: set-env
+        run: |
+          BRANCH="${{ inputs.branch_name }}"
+          
+          # Default values
+          ENVIRONMENT="unknown"
+          IS_PRODUCTION="false"
+          IS_STAGING="false"
+          IS_DEVELOPMENT="false"
+          IS_TESTING="false"
+          IS_UAT="false"
+          DEPLOY="false"
+          
+          # Main branch -> Production
+          if [[ "$BRANCH" == "main" ]]; then
+            ENVIRONMENT="production"
+            IS_PRODUCTION="true"
+            DEPLOY="true"
+          
+          # Dev branch -> Staging
+          elif [[ "$BRANCH" == "dev" ]]; then
+            ENVIRONMENT="staging"
+            IS_STAGING="true"
+            DEPLOY="true"
+          
+          # Release branches -> Staging
+          elif [[ "$BRANCH" =~ ^release/.* ]]; then
+            ENVIRONMENT="uat"
+            IS_UAT="true"
+            DEPLOY="false"
+          
+          # Feature branches -> Development
+          elif [[ "$BRANCH" =~ ^feature/.* ]]; then
+            ENVIRONMENT="development"
+            IS_DEVELOPMENT="true"
+            DEPLOY="true"
+          fi
+          
+          # Set all outputs
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "is_production=$IS_PRODUCTION" >> $GITHUB_OUTPUT
+          echo "is_staging=$IS_STAGING" >> $GITHUB_OUTPUT
+          echo "is_uat=$IS_UAT" >> $GITHUB_OUTPUT
+          echo "is_development=$IS_DEVELOPMENT" >> $GITHUB_OUTPUT
+          echo "is_testing=$IS_TESTING" >> $GITHUB_OUTPUT
+          echo "deploy=$DEPLOY" >> $GITHUB_OUTPUT
+          echo "Selected environment: $ENVIRONMENT"
+          cat $GITHUB_OUTPUT

@@ -29,7 +29,7 @@ jobs:
   # Call reusable workflow to get environment information
   determine-environment:
     name: Determine Environment
-    uses: ./.github/actions/environment.yaml
+    uses: ./.github/actions/setup-environment
     with:
       branch_name: ${{ github.ref_name }}
   
@@ -49,7 +49,7 @@ jobs:
 
   determine-version:
     name: Determine Version
-    uses: ./.github/actions/version.yaml
+    uses: ./.github/workflows/version.yaml
     with:
       java-version: '17'
 
@@ -66,7 +66,7 @@ jobs:
   build-java:
     name: Build Java Application
     needs: [determine-version]
-    uses: ./.github/actions/build.yaml
+    uses: ./.github/workflows/build.yaml
     with:
       version-args: ${{ needs.determine-version.outputs.version }}
       java-version: '17'
