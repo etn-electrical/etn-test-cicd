@@ -98,11 +98,8 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.PR_HEAD_SHA }}
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+      - name: Setup Java and Maven
+        uses: ./.github/actions/setup-java-maven
 
       - name: Generate basic analysis
         run: |
@@ -156,12 +153,8 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.PR_HEAD_SHA }}
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
+      - name: Setup Java and Maven
+        uses: ./.github/actions/setup-java-maven
 
       - name: Create analysis plugins helper
         run: |
@@ -455,18 +448,8 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.PR_HEAD_SHA }}
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
+      - name: Setup Java and Maven
+        uses: ./.github/actions/setup-java-maven
 
       - name: Download reports
         run: |
