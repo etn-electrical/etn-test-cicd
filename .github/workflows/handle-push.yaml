@@ -67,19 +67,44 @@ jobs:
 
   determine-version:
     name: Determine Version
-    uses: ./.github/workflows/version.yaml
-    with:
-      java-version: '17'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for version calculation
+
+      - name: Calculate Version
+        id: version-calc
+        uses: ./.github/actions/version-management
+        with:
+          java-version: '17'
+    outputs:
+      version: ${{ steps.version-calc.outputs.version }}
+      is-release: ${{ steps.version-calc.outputs.is-release }}
+      maven-version: ${{ steps.version-calc.outputs.maven-version }}
+      git-tag: ${{ steps.version-calc.outputs.git-tag }}
+      build-number: ${{ steps.version-calc.outputs.build-number }}
+      semantic-version: ${{ steps.version-calc.outputs.semantic-version }}
+      tag-created: ${{ steps.version-calc.outputs.tag-created }}
+      tag-name: ${{ steps.version-calc.outputs.tag-name }}
 
   print-version-info:
     name: Print Version Info
     needs: [determine-version]
     runs-on: ubuntu-latest
     steps:
-      - name: Print GitHub event info
+      - name: Print version information
         run: |
           echo "Version: ${{ needs.determine-version.outputs.version }}"
-  
+          echo "Is Release: ${{ needs.determine-version.outputs.is-release }}"
+          echo "Maven Version: ${{ needs.determine-version.outputs.maven-version }}"
+          echo "Git Tag: ${{ needs.determine-version.outputs.git-tag }}"
+          echo "Build Number: ${{ needs.determine-version.outputs.build-number }}"
+          echo "Semantic Version: ${{ needs.determine-version.outputs.semantic-version }}"
+          echo "Tag Created: ${{ needs.determine-version.outputs.tag-created }}"
+          echo "Tag Name: ${{ needs.determine-version.outputs.tag-name }}"
+
   # Build the Java application
   build-java:
     name: Build Java Application
