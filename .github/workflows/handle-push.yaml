@@ -70,4 +70,3 @@ jobs:
     with:
       version-args: ${{ needs.determine-version.outputs.version }}
       java-version: '17'
-
