@@ -1,0 +1,73 @@
+name: Reusable Spring Boot Build Workflow
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: 'Java version to use'
+        required: false
+        default: '17'
+        type: string
+      distribution:
+        description: 'Java distribution to use'
+        required: false
+        default: 'temurin'
+        type: string
+      maven-args:
+        description: 'Additional Maven arguments'
+        required: false
+        default: '-DskipTests -B clean package'
+        type: string
+      maven-file:
+        description: 'Path to Maven POM file'
+        required: false
+        default: 'pom.xml'
+        type: string
+      artifact-name:
+        description: 'Name of the uploaded artifact'
+        required: false
+        default: 'spring-boot-app'
+        type: string
+      artifact-path:
+        description: 'Path to the artifacts to upload'
+        required: false
+        default: 'target/*.jar'
+        type: string
+      retention-days:
+        description: 'Number of days to keep artifacts'
+        required: false
+        default: 7
+        type: number
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # For manual triggering
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK ${{ inputs.java-version || '17' }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java-version || '17' }}
+        distribution: ${{ inputs.distribution || 'temurin' }}
+        cache: maven
+
+    - name: Build with Maven
+      run: mvn ${{ inputs.maven-args || '-DskipTests -B clean package' }} --file ${{ inputs.maven-file || 'pom.xml' }}
+
+    #- name: Run tests
+    #  run: mvn test
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name || 'spring-boot-app' }}
+        path: ${{ inputs.artifact-path || 'target/*.jar' }}
+        retention-days: ${{ inputs.retention-days || 7 }}
