@@ -61,15 +61,6 @@ jobs:
     uses: ./.github/workflows/environment.yml
     with:
       branch_name: ${{ github.ref_name }}
-    outputs:
-      environment: ${{ jobs.environment-setup.outputs.environment }}
-      deploy: ${{ jobs.environment-setup.outputs.deploy }}
-      is_uat: ${{ jobs.environment-setup.outputs.is_uat }}
-      is_staging: ${{ jobs.environment-setup.outputs.is_staging }}
-      is_development: ${{ jobs.environment-setup.outputs.is_development }}
-      is_production: ${{ jobs.environment-setup.outputs.is_production }}
-      is_testing: ${{ jobs.environment-setup.outputs.is_testing }}
-      branch_name: ${{ jobs.environment-setup.outputs.branch_name }}
 
   print-environment-info:
     name: Print Environment Info
@@ -89,19 +80,9 @@ jobs:
           
   determine-version:
     name: Determine Version
-    runs-on: ubuntu-latest
     uses: ./.github/workflows/version.yml
     with:
       java-version: ${{ inputs.java-version }}
-    outputs:
-      version: ${{ jobs.version-calc.outputs.version }}
-      is-release: ${{ jobs.version-calc.outputs.is-release }}
-      maven-version: ${{ jobs.version-calc.outputs.maven-version }}
-      git-tag: ${{ jobs.version-calc.outputs.git-tag }}
-      build-number: ${{ jobs.version-calc.outputs.build-number }}
-      semantic-version: ${{ jobs.version-calc.outputs.semantic-version }}
-      tag-created: ${{ jobs.version-calc.outputs.tag-created }}
-      tag-name: ${{ jobs.version-calc.outputs.tag-name }}
 
   print-version-info:
     name: Print Version Info
