@@ -69,9 +69,12 @@ jobs:
 
       - name: Publish Test Results
         if: ${{ inputs.run-tests }}
-        uses: EnricoMi/publish-unit-test-result-action@v2
+        # Replace with an allowed action for test reporting
+        uses: actions/upload-artifact@v4
         with:
-          files: '**/target/surefire-reports/*.xml'
+          name: test-results
+          path: '**/target/surefire-reports/*.xml'
+          retention-days: 7
 
       - name: Find JAR file
         id: find-jar
