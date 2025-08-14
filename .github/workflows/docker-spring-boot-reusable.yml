@@ -42,11 +42,25 @@ on:
         type: boolean
         default: true
         description: 'Whether to push the image to registry'
+    outputs:
+      image-uri:
+        description: "Full URI of the pushed Docker image"
+        value: ${{ jobs.build-docker.outputs.image-uri }}
+      image-digest:
+        description: "Digest of the pushed Docker image"
+        value: ${{ jobs.build-docker.outputs.image-digest }}
+      push-status:
+        description: "Status of the image push operation"
+        value: ${{ jobs.build-docker.outputs.push-status }}
 
 jobs:
   build-docker:
     name: Build Spring Boot Docker Image
     runs-on: ubuntu-latest
+    outputs:
+      image-uri: ${{ steps.set-outputs.outputs.image-uri }}
+      image-digest: ${{ steps.build-push.outputs.digest }}
+      push-status: ${{ steps.set-outputs.outputs.push-status }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -84,6 +98,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
+        id: build-push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -97,5 +112,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Image digest
-        run: echo "Spring Boot Docker image built and pushed with tag ${{ inputs.image-tag }}"
+      - name: Set outputs
+        id: set-outputs
+        run: |
+          IMAGE_URI="${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          
+          if [ "${{ inputs.push-image }}" = "true" ]; then
+            echo "push-status=success" >> $GITHUB_OUTPUT
+            echo "Image successfully pushed to: ${IMAGE_URI}" 
+            echo "Image digest: ${{ steps.build-push.outputs.digest }}"
+          else
+            echo "push-status=skipped" >> $GITHUB_OUTPUT
+            echo "Image push was skipped"
+          fi
+
+      - name: Image details
+        run: |
+          echo "::group::Docker Image Information"
+          echo "Image URI: ${{ steps.set-outputs.outputs.image-uri }}"
+          echo "Image digest: ${{ steps.build-push.outputs.digest }}"
+          echo "Image URL: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}"
+          echo "::endgroup::"
