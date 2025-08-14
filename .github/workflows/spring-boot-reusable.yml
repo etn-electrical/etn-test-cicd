@@ -1,0 +1,143 @@
+name: Build and Test Workflow (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version to use for the build'
+      artifact-name:
+        required: false
+        type: string
+        default: 'app-artifact'
+        description: 'Name for the uploaded artifact'
+    outputs:
+      artifact-name:
+        description: "Name of the uploaded artifact"
+        value: ${{ jobs.build-spring-boot.outputs.artifact-name }}
+      jar-path:
+        description: "Path to the built JAR file"
+        value: ${{ jobs.build-spring-boot.outputs.jar-path }}
+
+permissions:
+  contents: read
+  packages: write
+  checks: write
+
+jobs:
+  print-github-info:
+    name: Print GitHub Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub event info
+        run: |
+          echo "GitHub Event Name: ${{ github.event_name }}"
+          echo "GitHub Repository: ${{ github.repository }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub Ref Name: ${{ github.ref_name }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "GitHub Actor: ${{ github.actor }}"
+          echo "GitHub Workflow: ${{ github.workflow }}"
+          echo "GitHub Workspace: ${{ github.workspace }}"
+          echo "GitHub Event Path: ${{ github.event_path }}"
+
+  determine-environment:
+    name: Determine Environment
+    runs-on: ubuntu-latest  # Added missing runs-on
+    steps:
+      - name: Checkout code  # Added missing checkout step
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        id: setup-env  # Added id to reference outputs
+        uses: ./.github/actions/setup-environment
+        with:
+          branch_name: ${{ github.ref_name }}
+    outputs:  # Added outputs to make them available to other jobs
+      environment: ${{ steps.setup-env.outputs.environment }}
+      deploy: ${{ steps.setup-env.outputs.deploy }}
+      is_uat: ${{ steps.setup-env.outputs.is_uat }}
+      is_staging: ${{ steps.setup-env.outputs.is_staging }}
+      is_development: ${{ steps.setup-env.outputs.is_development }}
+      is_production: ${{ steps.setup-env.outputs.is_production }}
+      is_testing: ${{ steps.setup-env.outputs.is_testing }}
+      branch_name: ${{ steps.setup-env.outputs.branch_name }}
+
+  print-environment-info:
+    name: Print Environment Info
+    needs: [ determine-environment ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub Environment info
+        run: |
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "Need Deploy: ${{ needs.determine-environment.outputs.deploy }}"
+          echo "UAT: ${{ needs.determine-environment.outputs.is_uat }}"
+          echo "Staging: ${{ needs.determine-environment.outputs.is_staging }}"
+          echo "Development: ${{ needs.determine-environment.outputs.is_development }}"
+          echo "Production: ${{ needs.determine-environment.outputs.is_production }}"
+          echo "Testing: ${{ needs.determine-environment.outputs.is_testing }}"
+          echo "Branch Name: ${{ needs.determine-environment.outputs.branch_name }}"
+          
+  determine-version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for version calculation
+
+      - name: Calculate Version
+        id: version-calc
+        uses: ./.github/actions/version-management
+        with:
+          java-version: ${{ inputs.java-version }}
+    outputs:
+      version: ${{ steps.version-calc.outputs.version }}
+      is-release: ${{ steps.version-calc.outputs.is-release }}
+      maven-version: ${{ steps.version-calc.outputs.maven-version }}
+      git-tag: ${{ steps.version-calc.outputs.git-tag }}
+      build-number: ${{ steps.version-calc.outputs.build-number }}
+      semantic-version: ${{ steps.version-calc.outputs.semantic-version }}
+      tag-created: ${{ steps.version-calc.outputs.tag-created }}
+      tag-name: ${{ steps.version-calc.outputs.tag-name }}
+
+  print-version-info:
+    name: Print Version Info
+    needs: [determine-version]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print version information
+        run: |
+          echo "Version: ${{ needs.determine-version.outputs.version }}"
+          echo "Is Release: ${{ needs.determine-version.outputs.is-release }}"
+          echo "Maven Version: ${{ needs.determine-version.outputs.maven-version }}"
+          echo "Git Tag: ${{ needs.determine-version.outputs.git-tag }}"
+          echo "Build Number: ${{ needs.determine-version.outputs.build-number }}"
+          echo "Semantic Version: ${{ needs.determine-version.outputs.semantic-version }}"
+          echo "Tag Created: ${{ needs.determine-version.outputs.tag-created }}"
+          echo "Tag Name: ${{ needs.determine-version.outputs.tag-name }}"
+          
+  # Build the Java application
+  build-spring-boot:
+    name: Build Spring Boot App
+    needs: [ determine-version ]
+    uses: ./.github/workflows/build-springboot-reusable.yml
+    with:
+      java-version: ${{ inputs.java-version }}
+      maven-args: 'clean package'
+      run-tests: true
+      version-args: '-Drevision=${{ needs.determine-version.outputs.maven-version }}'
+      artifact-name: ${{ inputs.artifact-name }}
+
+  docker-build:
+    name: Build Docker Image
+    needs: [ build-spring-boot ]
+    uses: ./.github/workflows/docker-spring-boot-reusable.yml
+    with:
+      artifact-name: ${{ inputs.artifact-name }}
+      image-name: ${{ inputs.artifact-name }}-image
+      image-tag: ${{ needs.determine-version.outputs.semantic-version }}

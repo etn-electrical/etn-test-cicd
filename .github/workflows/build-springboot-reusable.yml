@@ -1,0 +1,101 @@
+name: Spring Boot Build Workflow (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version to use for the build'
+      maven-args:
+        required: false
+        type: string
+        default: 'clean package'
+        description: 'Maven arguments for build'
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to run tests'
+      artifact-name:
+        required: false
+        type: string
+        default: 'app-artifact'
+        description: 'Name for the uploaded artifact'
+      version-args:
+        required: false
+        type: string
+        default: ''
+        description: 'Version arguments to pass to Maven'
+    outputs:
+      artifact-name:
+        description: "Name of the uploaded artifact"
+        value: ${{ jobs.build.outputs.artifact-name }}
+      jar-path:
+        description: "Path to the built JAR file"
+        value: ${{ jobs.build.outputs.jar-path }}
+
+jobs:
+  build:
+    name: Build Spring Boot Application
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+      jar-path: ${{ steps.find-jar.outputs.jar-path }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Update version in pom.xml
+        run: |
+          mvn versions:set -DnewVersion=${{ inputs.version-args }} -DgenerateBackupPoms=false
+
+      - name: Build with Maven (Skip Tests)
+        if: ${{ !inputs.run-tests }}
+        run: mvn -B ${{ inputs.maven-args }} -DskipTests ${{ inputs.version-args }}
+
+      - name: Build with Maven (With Tests)
+        if: ${{ inputs.run-tests }}
+        run: mvn -B ${{ inputs.maven-args }} ${{ inputs.version-args }}
+
+      - name: Publish Test Results
+        if: ${{ inputs.run-tests }}
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: '**/target/surefire-reports/*.xml'
+
+      - name: Find JAR file
+        id: find-jar
+        run: |
+          JAR_PATH=$(find target -name "*.jar" -not -name "*sources.jar" -not -name "*javadoc.jar" | head -n 1)
+          echo "jar-path=${JAR_PATH}" >> $GITHUB_OUTPUT
+          echo "Found JAR: ${JAR_PATH}"
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ steps.find-jar.outputs.jar-path }}
+          retention-days: 7
+
+      - name: Generate build info
+        run: |
+          echo "Build completed at: $(date)" > build-info.txt
+          echo "JAR path: ${{ steps.find-jar.outputs.jar-path }}" >> build-info.txt
+          echo "Java version: ${{ inputs.java-version }}" >> build-info.txt
+
+      - name: Upload build info
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}-info
+          path: build-info.txt
+          retention-days: 7
