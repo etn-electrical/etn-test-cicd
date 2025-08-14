@@ -20,6 +20,9 @@ on:
       jar-path:
         description: "Path to the built JAR file"
         value: ${{ jobs.build-spring-boot.outputs.jar-path }}
+      image-url:
+        description: "URL of the built Docker image"
+        value: ${{ jobs.docker-build.outputs.image-uri }}
 
 permissions:
   contents: read
@@ -141,3 +144,16 @@ jobs:
       artifact-name: ${{ inputs.artifact-name }}
       image-name: ${{ inputs.artifact-name }}-image
       image-tag: ${{ needs.determine-version.outputs.semantic-version }}
+
+  print-docker-info:
+    name: Print Docker Image Info
+    needs: [ docker-build ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Docker Image Information
+        run: |
+          echo "::group::Docker Image Details"
+          echo "Image URI: ${{ needs.docker-build.outputs.image-uri }}"
+          echo "Image Digest: ${{ needs.docker-build.outputs.image-digest }}"
+          echo "Push Status: ${{ needs.docker-build.outputs.push-status }}"
+          echo "::endgroup::"
