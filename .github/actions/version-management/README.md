@@ -195,27 +195,9 @@ Build: 42
 Branch: main
 Commit: abc123def456
 Semantic Version: 1.2.3
-```
-
-## Integration with Maven
-
 ### Version Property Integration
-
-```xml
-<project>
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>com.example</groupId>
-  <artifactId>my-app</artifactId>
-  <version>${revision}</version>
   
-  <properties>
-    <revision>1.0.0-SNAPSHOT</revision>
-  </properties>
-</project>
-```
-
 ### Workflow Integration
-```yaml
 - name: Calculate Version
   id: version
   uses: ./.github/actions/version-management
@@ -228,36 +210,21 @@ Semantic Version: 1.2.3
   if: steps.version.outputs.is-release == 'true'
   run: |
     mvn versions:set -DnewVersion=${{ steps.version.outputs.version }}
-```
-
-## Environment Variables
-
 The action sets these environment variables for subsequent steps:
-
-- `VERSION`: The calculated version
 - `IS_RELEASE`: Boolean indicating release status  
-- `BUILD_NUMBER`: The build number (commit count)
-- `SEMANTIC_VERSION`: The full semantic version
 - `TAG_CREATED`: Whether a tag was created (true/false)
 - `TAG_NAME`: The name of the created tag
-
-## Prerequisites
-
 - **Git History**: Repository must be checked out with full history (`fetch-depth: 0`)
 - **Git Tags**: Uses existing version tags in `v*.*.*` format for base version calculation
 - **Java Environment**: Automatically set up by the action for Maven operations
 - **Maven Project**: Optional - provides additional version information if `pom.xml` exists
-
 ## Validation and Error Handling
-
 The action includes comprehensive validation:
 - **Version Format**: Warns about non-semantic versioning patterns
 - **Release Consistency**: Prevents SNAPSHOT versions in release builds  
 - **Tag Conflicts**: Safely handles existing tags without errors
 - **Missing Dependencies**: Gracefully handles missing Maven files
-
 ## Git Flow Compatibility
-
 This action is designed to work seamlessly with Git Flow branching strategies:
 
 - ✅ **Feature branches** (`feature/*`) → Development versions
@@ -266,3 +233,35 @@ This action is designed to work seamlessly with Git Flow branching strategies:
 - ✅ **Develop branch** → Development builds
 - ✅ **Main/Master** → Production releases with auto-tagging
 - ✅ **Pull Request contexts** → PR-specific versioning
+
+The action sets these environment variables for use in subsequent steps:
+
+- `VERSION`: The calculated version
+- `IS_RELEASE`: Boolean indicating release status
+- `BUILD_NUMBER`: The build number (commit count)
+- `SEMANTIC_VERSION`: The full semantic version
+
+## Validation
+
+The action includes automatic validation:
+- Warns if version doesn't follow semantic versioning
+- Fails if release builds contain 'SNAPSHOT'
+- Validates version format consistency
+
+## Prerequisites
+
+- Repository must be checked out with full Git history (`fetch-depth: 0`)
+- Maven project with valid `pom.xml` (for Maven-based version detection)
+- Java environment (automatically set up by the action)
+
+## Examples by Branch Type
+
+| Branch | Maven Version | Git Tag | Calculated Version | Is Release |
+|--------|---------------|---------|-------------------|------------|
+| `main` | `1.2.3-SNAPSHOT` | `v1.2.2` | `1.2.3` | `true` |
+| `develop` | `1.2.3-SNAPSHOT` | `v1.2.2` | `1.2.3-SNAPSHOT` | `false` |
+| `feature/new` | `1.2.3-SNAPSHOT` | `v1.2.2` | `1.2.3-SNAPSHOT` | `false` |
+| `release/1.3.0` | `1.3.0-SNAPSHOT` | `v1.2.2` | `1.3.0` | `true` |
+| `main` | - | `v2.0.0` | `2.0.0` | `true` |
+| `develop` | - | `v2.0.0` | `2.0.0-dev.42` | `false` |
+
