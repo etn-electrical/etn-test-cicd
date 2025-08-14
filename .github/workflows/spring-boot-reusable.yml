@@ -13,6 +13,16 @@ on:
         type: string
         default: 'app-artifact'
         description: 'Name for the uploaded artifact'
+      maven-args:
+        required: false
+        type: string
+        default: 'clean package'
+        description: 'Maven arguments for build'
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to run tests'
     outputs:
       artifact-name:
         description: "Name of the uploaded artifact"
@@ -131,8 +141,8 @@ jobs:
     uses: ./.github/workflows/build-springboot-reusable.yml
     with:
       java-version: ${{ inputs.java-version }}
-      maven-args: 'clean package'
-      run-tests: true
+      maven-args: ${{ inputs.maven-args }}
+      run-tests: ${{ inputs.run-tests }}
       version-args: '-Drevision=${{ needs.determine-version.outputs.maven-version }}'
       artifact-name: ${{ inputs.artifact-name }}
 
