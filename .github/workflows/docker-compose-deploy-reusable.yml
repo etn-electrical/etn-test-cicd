@@ -48,7 +48,7 @@ on:
 jobs:
   deploy-docker:
     name: Deploy Docker Image
-    runs-on: [ self-hosted,${{ inputs.runner-label }} ]
+    runs-on: [ self-hosted,'${{ inputs.runner-label }}' ]
     outputs:
       status: ${{ steps.deploy.outputs.status }}
       container-id: ${{ steps.deploy.outputs.container-id }}
