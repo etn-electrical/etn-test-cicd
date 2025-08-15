@@ -123,8 +123,8 @@ jobs:
       - name: Deploy with docker-compose on remote server
         id: deploy
         run: |
-          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
-          "cd ${{ inputs.remote-working-dir }} && export image='${{ inputs.image-url }}' && \
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} "cd ${{ inputs.remote-working-dir }} && \
+           export image='${{ inputs.image-url }}' && \
            echo 'Stopping any existing containers for ${{ inputs.service-name }}...' && \
            docker-compose -f ${{ inputs.compose-file }} stop ${{ inputs.service-name }} || true && \
            docker-compose -f ${{ inputs.compose-file }} rm -f ${{ inputs.service-name }} || true && \
@@ -135,17 +135,17 @@ jobs:
            if docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} | grep -q 'Up'; then \
              CONTAINER_ID=\$(docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }}) && \
              echo \"Container successfully started with ID: \$CONTAINER_ID\" && \
-             echo \"CONTAINER_ID=\$CONTAINER_ID\" \
+             echo \"CONTAINER_ID=\$CONTAINER_ID\"; \
            else \
              echo '::error::Container failed to start properly' && \
              docker-compose -f ${{ inputs.compose-file }} logs ${{ inputs.service-name }} && \
-             exit 1 \
+             exit 1; \
            fi"
-          
+
           # Get container ID from last command
           CONTAINER_ID=$(ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
             "cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }}")
-          
+
           if [ -n "$CONTAINER_ID" ]; then
             echo "status=success" >> $GITHUB_OUTPUT
             echo "container-id=$CONTAINER_ID" >> $GITHUB_OUTPUT
@@ -159,10 +159,10 @@ jobs:
         run: |
           echo "::group::Container Logs"
           ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
-          "export image='${{ inputs.image-url }}' && cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} logs ${{ inputs.service-name }}"
+          "cd ${{ inputs.remote-working-dir }} && export image='${{ inputs.image-url }}' && docker-compose -f ${{ inputs.compose-file }} logs ${{ inputs.service-name }}"
           echo "::endgroup::"
 
           echo "::group::Container Status"
           ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
-          "cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} && docker system -prune --all -f"
+          "cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} && docker system prune --all -f"
           echo "::endgroup::"
