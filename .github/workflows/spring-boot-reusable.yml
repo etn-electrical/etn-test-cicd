@@ -33,6 +33,9 @@ on:
       image-url:
         description: "URL of the built Docker image"
         value: ${{ jobs.docker-build.outputs.image-uri }}
+      environment-name:
+        description: "Determined environment based on branch"
+        value: ${{ needs.determine-environment.outputs.environment }}
 
 permissions:
   contents: write

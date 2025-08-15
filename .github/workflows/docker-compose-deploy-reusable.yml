@@ -1,0 +1,127 @@
+name: Docker Compose Deploy Workflow (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      image-url:
+        required: true
+        type: string
+        description: 'Docker image URL to deploy'
+      compose-file:
+        required: false
+        type: string
+        default: 'docker-compose.yml'
+        description: 'Path to docker-compose file'
+      service-name:
+        required: false
+        type: string
+        default: 'app'
+        description: 'Service name in docker-compose file'
+      environment:
+        required: false
+        type: string
+        default: 'development'
+        description: 'Environment to deploy to'
+      runner-label:
+        required: false
+        type: string
+        default: 'self-hosted'
+        description: 'Label for self-hosted runner'
+      env-file:
+        required: false
+        type: string
+        default: '.env'
+        description: 'Path to env file for docker-compose'
+      wait-time:
+        required: false
+        type: number
+        default: 30
+        description: 'Time to wait for service to start (seconds)'
+    outputs:
+      deployment-status:
+        description: "Status of the deployment"
+        value: ${{ jobs.deploy-docker.outputs.status }}
+      container-id:
+        description: "ID of the deployed container"
+        value: ${{ jobs.deploy-docker.outputs.container-id }}
+
+jobs:
+  deploy-docker:
+    name: Deploy Docker Image
+    runs-on: [ self-hosted,${{ inputs.runner-label }} ]
+    outputs:
+      status: ${{ steps.deploy.outputs.status }}
+      container-id: ${{ steps.deploy.outputs.container-id }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Create .env file if not exists
+        run: |
+          if [ ! -f "${{ inputs.env-file }}" ]; then
+            echo "Creating empty .env file"
+            touch ${{ inputs.env-file }}
+          fi
+
+      - name: Update image in docker-compose
+        run: |
+          echo "Updating docker-compose with image: ${{ inputs.image-url }}"
+          # Check if docker-compose file exists
+          if [ ! -f "${{ inputs.compose-file }}" ]; then
+            echo "::error::Docker-compose file not found: ${{ inputs.compose-file }}"
+            exit 1
+          fi
+          
+          # Create a temp file for docker-compose override
+          cat > docker-compose.override.yml <<EOF
+          version: '3'
+          services:
+            ${{ inputs.service-name }}:
+              image: ${{ inputs.image-url }}
+          EOF
+          
+          echo "Created docker-compose override file:"
+          cat docker-compose.override.yml
+
+      - name: Pull Docker image
+        run: docker-compose -f ${{ inputs.compose-file }} pull ${{ inputs.service-name }}
+
+      - name: Deploy with docker-compose
+        id: deploy
+        run: |
+          echo "Stopping any existing containers for ${{ inputs.service-name }}..."
+          docker-compose -f ${{ inputs.compose-file }} stop ${{ inputs.service-name }} || true
+          docker-compose -f ${{ inputs.compose-file }} rm -f ${{ inputs.service-name }} || true
+          
+          echo "Starting container from image ${{ inputs.image-url }}..."
+          docker-compose -f ${{ inputs.compose-file }} up -d ${{ inputs.service-name }}
+          
+          # Wait for service to start
+          echo "Waiting for service to start (${inputs.wait-time}s)..."
+          sleep ${{ inputs.wait-time }}
+          
+          # Check if service is running
+          if docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} | grep -q "Up"; then
+            CONTAINER_ID=$(docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }})
+            echo "Container successfully started with ID: $CONTAINER_ID"
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "container-id=$CONTAINER_ID" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Container failed to start properly"
+            docker-compose -f ${{ inputs.compose-file }} logs ${{ inputs.service-name }}
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "container-id=none" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Print container logs
+        if: always()
+        run: |
+          echo "::group::Container Logs"
+          docker-compose -f ${{ inputs.compose-file }} logs ${{ inputs.service-name }}
+          echo "::endgroup::"
+          
+          echo "::group::Container Status"
+          docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }}
+          echo "::endgroup::"
