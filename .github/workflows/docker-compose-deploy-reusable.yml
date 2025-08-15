@@ -131,7 +131,7 @@ jobs:
            echo 'Starting container from image ${{ inputs.image-url }}...' && \
            docker-compose -f ${{ inputs.compose-file }} up -d ${{ inputs.service-name }} && \
           
-           echo 'Waiting for service to start (${{{ inputs.wait-time }}s)...' && \
+           echo 'Waiting for service to start (${{ inputs.wait-time }}s)...' && \
            sleep ${{ inputs.wait-time }} && \
           
            if docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} | grep -q 'Up'; then \
