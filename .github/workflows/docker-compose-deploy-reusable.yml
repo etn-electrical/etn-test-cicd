@@ -117,14 +117,14 @@ jobs:
       - name: Pull Docker image on remote server
         run: |
           ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
-          "cd ${{ inputs.remote-working-dir }} && image='${{ inputs.image-url }}' &&  \
+          "cd ${{ inputs.remote-working-dir }} && export image='${{ inputs.image-url }}' &&  \
            docker-compose -f ${{ inputs.compose-file }} pull ${{ inputs.service-name }}"
 
       - name: Deploy with docker-compose on remote server
         id: deploy
         run: |
           ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
-          "cd ${{ inputs.remote-working-dir }} && \
+          "cd ${{ inputs.remote-working-dir }} && export image='${{ inputs.image-url }}' && \
            echo 'Stopping any existing containers for ${{ inputs.service-name }}...' && \
            docker-compose -f ${{ inputs.compose-file }} stop ${{ inputs.service-name }} || true && \
            docker-compose -f ${{ inputs.compose-file }} rm -f ${{ inputs.service-name }} || true && \
