@@ -128,13 +128,10 @@ jobs:
            echo 'Stopping any existing containers for ${{ inputs.service-name }}...' && \
            docker-compose -f ${{ inputs.compose-file }} stop ${{ inputs.service-name }} || true && \
            docker-compose -f ${{ inputs.compose-file }} rm -f ${{ inputs.service-name }} || true && \
-          
            echo 'Starting container from image ${{ inputs.image-url }}...' && \
            docker-compose -f ${{ inputs.compose-file }} up -d ${{ inputs.service-name }} && \
-          
            echo 'Waiting for service to start (${{ inputs.wait-time }}s)...' && \
            sleep ${{ inputs.wait-time }} && \
-          
            if docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} | grep -q 'Up'; then \
              CONTAINER_ID=\$(docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }}) && \
              echo \"Container successfully started with ID: \$CONTAINER_ID\" && \
