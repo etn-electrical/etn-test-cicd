@@ -109,7 +109,7 @@ jobs:
       java-version: ${{ inputs.java-version }}
       maven-args: ${{ inputs.maven-args }}
       run-tests: ${{ inputs.run-tests }}
-      version-args: '-Drevision=${{ needs.determine-version.outputs.maven-version }}'
+      version-args: ${{ needs.determine-version.outputs.version }}
       artifact-name: ${{ inputs.artifact-name }}
 
   docker-build:
@@ -119,7 +119,7 @@ jobs:
     with:
       artifact-name: ${{ inputs.artifact-name }}
       image-name: ${{ inputs.artifact-name }}-image
-      image-tag: ${{ needs.determine-version.outputs.semantic-version }}
+      image-tag: ${{ needs.determine-version.outputs.version }}
 
   print-docker-info:
     name: Print Docker Image Info
