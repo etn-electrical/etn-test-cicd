@@ -114,11 +114,11 @@ jobs:
 
   docker-build:
     name: Build Docker Image
-    needs: [ build-spring-boot ]
+    needs: [ determine-version, build-spring-boot ]
     uses: ./.github/workflows/docker-spring-boot-reusable.yml
     with:
       artifact-name: ${{ inputs.artifact-name }}
-      image-name: ${{ inputs.artifact-name }}-image
+      image-name: ${{ inputs.artifact-name }}
       image-tag: ${{ needs.determine-version.outputs.version }}
 
   print-docker-info:
