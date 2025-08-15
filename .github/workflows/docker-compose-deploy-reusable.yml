@@ -167,5 +167,5 @@ jobs:
 
           echo "::group::Container Status"
           ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
-          "cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }}"
+          "cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} && docker system -prune --all -f"
           echo "::endgroup::"
