@@ -21,10 +21,6 @@ on:
         type: string
         default: '22'
         description: 'SSH port for remote server'
-      ssh-private-key:
-        required: true
-        type: string
-        description: 'SSH private key for authentication'
       compose-file:
         required: false
         type: string
