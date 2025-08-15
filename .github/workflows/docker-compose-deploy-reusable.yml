@@ -51,6 +51,11 @@ on:
         type: number
         default: 30
         description: 'Time to wait for service to start (seconds)'
+      runner-label:
+        required: false
+        type: string
+        default: 'self-hosted'
+        description: 'Label for self-hosted runner'
     outputs:
       deployment-status:
         description: "Status of the deployment"
