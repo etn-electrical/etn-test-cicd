@@ -74,17 +74,39 @@ jobs:
       - name: Extract Spring Boot JAR
         run: |
           mkdir -p ./app
-          if [[ -f ./artifacts/*.zip ]]; then
-            unzip ./artifacts/*.zip -d ./app
-          elif [[ -f ./artifacts/*.jar ]]; then
-            cp ./artifacts/*.jar ./app/
-          else
-            echo "No JAR or ZIP found in artifacts directory"
-            ls -la ./artifacts
+          echo "Listing artifact directory contents:"
+          ls -la ./artifacts
+
+          # First check if we have any files at all
+          if [ -z "$(ls -A ./artifacts 2>/dev/null)" ]; then
+            echo "Error: Artifacts directory is empty or doesn't exist"
             exit 1
           fi
-          echo "Extracted application files:"
+
+          # Extract based on file type
+          if ls ./artifacts/*.zip 1>/dev/null 2>&1; then
+            echo "Found ZIP file, extracting..."
+            unzip -o ./artifacts/*.zip -d ./app
+          elif ls ./artifacts/*.jar 1>/dev/null 2>&1; then
+            echo "Found JAR file, copying..."
+            cp ./artifacts/*.jar ./app/
+          elif [ -d "./artifacts/target" ] && ls ./artifacts/target/*.jar 1>/dev/null 2>&1; then
+            echo "Found JAR in target directory, copying..."
+            cp ./artifacts/target/*.jar ./app/
+          else
+            echo "Error: No JAR or ZIP found in artifacts directory structure"
+            find ./artifacts -type f | sort
+            exit 1
+          fi
+
+          echo "Extracted application files in app directory:"
           ls -la ./app
+
+          # Verify we have the JAR file
+          if ! ls ./app/*.jar 1>/dev/null 2>&1; then
+            echo "Error: No JAR file found in app directory after extraction"
+            exit 1
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
