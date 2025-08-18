@@ -2,6 +2,9 @@ name: Spring Boot Build Workflow (Reusable)
 
 on:
   workflow_call:
+    secrets:
+      PACKAGE_TOKEN:
+        required: true
     inputs:
       java-version:
         required: false
