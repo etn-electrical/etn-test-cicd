@@ -71,7 +71,7 @@ jobs:
       - name: Check if PACKAGE_TOKEN secret exists
         run: |
           if [ -n "${{ secrets.PACKAGE_TOKEN }}" ]; then
-            echo "✅ PACKAGE_TOKEN secret is set"
+            echo "✅ PACKAGE_TOKEN secret is set" 
             echo "SECRET_EXISTS=true" >> $GITHUB_ENV
           else
             echo "❌ PACKAGE_TOKEN secret is NOT set"
@@ -118,7 +118,7 @@ jobs:
             </activeProfiles>
           </settings>
           EOF
-          echo "${{ github.actor }} -- ${{ secrets.PACKAGE_TOKEN }}"
+          echo "${{ github.actor }}"
           cat $HOME/.m2/settings.xml
 
 
