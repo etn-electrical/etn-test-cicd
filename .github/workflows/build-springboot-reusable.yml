@@ -81,8 +81,8 @@ jobs:
             <servers>
               <server>
                 <id>github</id>
-                <username>${{ github.actor }}</username>
-                <password>${{ secrets.PACKAGE_TOKEN }}</password>
+                <username>ericsunf22</username>
+                <password>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</password>
               </server>
             </servers>
             <profiles>
