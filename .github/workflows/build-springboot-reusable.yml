@@ -53,9 +53,21 @@ jobs:
         with:
           java-version: ${{ inputs.java-version }}
           distribution: 'temurin'
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: ${{ secrets.GH_TOKEN }}
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+#      - name: Configure Maven settings
+#        uses: actions/setup-java@v4
+#        with:
+#          java-version: '17'
+#          distribution: 'temurin'
+#          server-id: github # Value of the distributionManagement/repository/id field of the pom.xml
+#          settings-path: ${{ github.workspace }} # location for the settings.xml file
 
       - name: Setup Maven settings.xml
         run: |
@@ -96,6 +108,7 @@ jobs:
             </activeProfiles>
           </settings>
           EOF
+          cat $HOME/.m2/settings.xml
 
 
       - name: Update version in pom.xml
@@ -105,10 +118,14 @@ jobs:
       - name: Build with Maven (Skip Tests)
         if: ${{ !inputs.run-tests }}
         run: mvn -B ${{ inputs.maven-args }} -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build with Maven (With Tests)
         if: ${{ inputs.run-tests }}
         run: mvn -B ${{ inputs.maven-args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Test Results
         if: ${{ inputs.run-tests }}
