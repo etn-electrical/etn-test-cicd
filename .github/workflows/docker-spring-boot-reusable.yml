@@ -72,7 +72,7 @@ jobs:
           path: ./artifacts
 
       - name: Setup Default Dockerfile
-        run: >-
+        run: |
           if [[ -z "${{ inputs.dockerfile-path }}" || "${{ inputs.dockerfile-path }}" == "none"  ||  ! -f "${{ inputs.dockerfile-path }}" ]]; 
           then
             echo "Creating default Dockerfile since path is 'none' or file doesn't exist"
