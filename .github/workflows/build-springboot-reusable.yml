@@ -61,23 +61,16 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-#      - name: Configure Maven settings
-#        uses: actions/setup-java@v4
-#        with:
-#          java-version: '17'
-#          distribution: 'temurin'
-#          server-id: github # Value of the distributionManagement/repository/id field of the pom.xml
-#          settings-path: ${{ github.workspace }} # location for the settings.xml file
-      - name: Check if PACKAGE_TOKEN secret exists
-        run: |
-          if [ -n "${{ secrets.PACKAGE_TOKEN }}" ]; then
-            echo "✅   is set" 
-            echo "SECRET_EXISTS=true" >> $GITHUB_ENV
-          else
-            echo "❌   is NOT set"
-            echo "SECRET_EXISTS=false" >> $GITHUB_ENV
-            exit 1;
-          fi
+#      - name: Check if PACKAGE_TOKEN secret exists
+#        run: |
+#          if [ -n "${{ secrets.PACKAGE_TOKEN }}" ]; then
+#            echo "✅   is set"
+#            echo "SECRET_EXISTS=true" >> $GITHUB_ENV
+#          else
+#            echo "❌   is NOT set"
+#            echo "SECRET_EXISTS=false" >> $GITHUB_ENV
+#            exit 1;
+#          fi
 
       - name: Setup Maven settings.xml
         run: |
