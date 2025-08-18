@@ -30,7 +30,7 @@ on:
       spring-profiles:
         required: false
         type: string
-        default: ''
+        default: 'dev'
         description: 'Spring profiles to activate'
       registry:
         required: false
@@ -72,17 +72,17 @@ jobs:
           path: ./artifacts
 
       - name: Setup Default Dockerfile
-        run: |
-          if [ "${{ inputs.dockerfile-path }}" == "none" ] || [ ! -f "${{ inputs.dockerfile-path }}" ]; then
+        run: >-
+          if [[ -z "${{ inputs.dockerfile-path }}" || "${{ inputs.dockerfile-path }}" == "none"  ||  ! -f "${{ inputs.dockerfile-path }}" ]]; 
+          then
             echo "Creating default Dockerfile since path is 'none' or file doesn't exist"
-            cat > Dockerfile << EOF
-            FROM eclipse-temurin:${{ inputs.java-version }}
-            WORKDIR /app
-            COPY ./app/*.jar app.jar
-            ENV JAVA_OPTS=""
-            ENV SPRING_PROFILES_ACTIVE=${{ inputs.spring-profiles }}
-            ENTRYPOINT ["sh", "-c", "java \${JAVA_OPTS} -jar app.jar"]
-            EOF
+          cat > Dockerfile <<- EOF
+              FROM eclipse-temurin:${{ inputs.java-version }}-jre-alpine
+              WORKDIR /app
+              COPY ./app/*.jar app.jar
+              ENV JAVA_OPTS=""
+              ENTRYPOINT ["sh", "-c", "java \${JAVA_OPTS} -jar app.jar"]
+          EOF
             echo "Default Dockerfile created successfully"
           else
             echo "Using existing Dockerfile at ${{ inputs.dockerfile-path }}"
