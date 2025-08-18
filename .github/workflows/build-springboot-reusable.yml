@@ -61,16 +61,16 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-#      - name: Check if PACKAGE_TOKEN secret exists
-#        run: |
-#          if [ -n "${{ secrets.PACKAGE_TOKEN }}" ]; then
-#            echo "✅   is set"
-#            echo "SECRET_EXISTS=true" >> $GITHUB_ENV
-#          else
-#            echo "❌   is NOT set"
-#            echo "SECRET_EXISTS=false" >> $GITHUB_ENV
-#            exit 1;
-#          fi
+      - name: Check if PACKAGE_TOKEN secret exists
+        run: |
+          if [ -n "${{ secrets.PACKAGE_TOKEN }}" ]; then
+            echo "✅   is set"
+            echo "SECRET_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "❌   is NOT set"
+            echo "SECRET_EXISTS=false" >> $GITHUB_ENV
+            exit 1;
+          fi
 
       - name: Setup Maven settings.xml
         run: |
