@@ -26,6 +26,11 @@ on:
         type: boolean
         default: true
         description: 'Whether to run tests'
+      dockerfile-path:
+        required: false
+        type: string
+        default: 'Dockerfile'
+        description: 'Path to the Dockerfile'
     outputs:
       artifact-name:
         description: "Name of the uploaded artifact"
@@ -123,8 +128,10 @@ jobs:
     name: Build Docker Image
     needs: [ determine-version, build-spring-boot ]
     uses: ./.github/workflows/docker-spring-boot-reusable.yml
+    secrets: inherit
     with:
       artifact-name: ${{ inputs.artifact-name }}
+      dockerfile-path: ${{ inputs.dockerfile-path }}
       image-name: ${{ inputs.artifact-name }}
       image-tag: ${{ needs.determine-version.outputs.version }}
 
