@@ -44,6 +44,9 @@ on:
       environment-name:
         description: "Determined environment based on branch"
         value: ${{ jobs.determine-environment.outputs.environment }}
+      version-number:
+        description: "Version number determined for the build"
+        value: ${{ jobs.determine-version.outputs.version }}
 
 permissions:
   contents: write
