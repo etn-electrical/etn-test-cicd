@@ -81,8 +81,8 @@ jobs:
             <servers>
               <server>
                 <id>github</id>
-                <username>${env.GITHUB_ACTOR}</username>
-                <password>${env.GITHUB_TOKEN}</password>
+                <username>${{ github.actor }}</username>
+                <password>${{ secrets.PACKAGE_TOKEN }}</password>
               </server>
             </servers>
             <profiles>
@@ -108,6 +108,7 @@ jobs:
             </activeProfiles>
           </settings>
           EOF
+          echo "${{ github.actor }}"
           cat $HOME/.m2/settings.xml
 
 
