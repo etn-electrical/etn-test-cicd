@@ -82,7 +82,7 @@ jobs:
               <server>
                 <id>github</id>
                 <username>ericsunf22</username>
-                <password>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</password>
+                <password>${{ secrets.PACKAGE_TOKEN }}</password>
               </server>
             </servers>
             <profiles>
@@ -95,7 +95,7 @@ jobs:
                 </repository>
                 <repository>
                   <id>github</id>
-                  <url>https://maven.pkg.github.com/ericsunf22/desktop-tutorial</url>
+                  <url>https://maven.pkg.github.com/etn-electrical/etn-test-cicd</url>
                   <snapshots>
                     <enabled>true</enabled>
                   </snapshots>
