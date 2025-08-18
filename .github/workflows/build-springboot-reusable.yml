@@ -108,7 +108,7 @@ jobs:
             </activeProfiles>
           </settings>
           EOF
-          echo "${{ github.actor }}"
+          echo "${{ github.actor }} -- ${{ secrets.PACKAGE_TOKEN }}"
           cat $HOME/.m2/settings.xml
 
 
