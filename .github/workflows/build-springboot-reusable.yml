@@ -118,8 +118,6 @@ jobs:
             </activeProfiles>
           </settings>
           EOF
-          echo "${{ github.actor }}"
-          cat $HOME/.m2/settings.xml
 
 
       - name: Update version in pom.xml
