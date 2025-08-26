@@ -63,7 +63,7 @@ jobs:
           echo "VPN_PASSWORD: VPN_PASSWORD"
           echo "HARBOR_USERNAME: $HARBOR_USERNAME"
           echo "HARBOR_PASSWORD: $HARBOR_PASSWORD"
-          echo "GHCR_TOKEN: $GHCR_TOKEN
+          echo "GHCR_TOKEN: $GHCR_TOKEN"
 
       - name: Checkout repository
         uses: actions/checkout@v4
