@@ -30,38 +30,17 @@ on:
         required: false
         default: '2.4.1'
         type: string
-      vpn_host:
-        description: 'VPN Server Host'
-        required: false
-        type: string
-        default: '101.42.118.139'
-      vpn_port:
-        description: 'VPN Server Port'
-        required: false
-        default: '28880'
-        type: string
-      vpn_username:
-        description: 'VPN Username'
-        required: false
-        type: string
-        default: 'EricSun'
-      trusted_cert:
-        description: 'VPN Trusted Certificate Fingerprint (optional)'
-        required: false
-        type: string
-        default: '8faa52d66a5bd79d3f2802e932a24be19f7d32399a090c6db591423ce801bb37'
-
 env:
   SOURCE_IMAGE: ${{ inputs.source_image }}
   HARBOR_REGISTRY: ${{ inputs.harbor_registry }}
   HARBOR_PROJECT: ${{ inputs.harbor_project }}
   TARGET_IMAGE_NAME: ${{ inputs.target_image_name }}
   TARGET_IMAGE_TAG: ${{ inputs.target_image_tag }}
-  VPN_HOST: ${{ inputs.vpn_host }}
-  VPN_PORT: ${{ inputs.vpn_port }}
-  VPN_USERNAME: ${{ inputs.vpn_username }}
+  VPN_HOST: ${{ vars.VPN_HOST }}
+  VPN_PORT: ${{ vars.VPN_PORT }}
+  VPN_USERNAME: ${{ secrets.VPN_USERNAME }}
   VPN_PASSWORD: ${{ secrets.VPN_PASSWORD }}
-  VPN_TRUSTED_CERT: ${{ inputs.trusted_cert }}
+  VPN_TRUSTED_CERT: ${{ secrets.TRUSTED_CERT }}
   HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
   HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
   GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
@@ -71,6 +50,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Print Variables
+        run: |
+          echo "SOURCE_IMAGE: $SOURCE_IMAGE"
+          echo "HARBOR_REGISTRY: $HARBOR_REGISTRY"
+          echo "HARBOR_PROJECT: $HARBOR_PROJECT"
+          echo "TARGET_IMAGE_NAME: $TARGET_IMAGE_NAME"
+          echo "TARGET_IMAGE_TAG: $TARGET_IMAGE_TAG"
+          echo "VPN_HOST: $VPN_HOST"
+          echo "VPN_PORT: $VPN_PORT"
+          echo "VPN_USERNAME: $VPN_USERNAME"
+          echo "VPN_PASSWORD: VPN_PASSWORD"
+          echo "HARBOR_USERNAME: $HARBOR_USERNAME"
+          echo "HARBOR_PASSWORD: $HARBOR_PASSWORD"
+          echo "GHCR_TOKEN: $GHCR_TOKEN"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -107,8 +101,8 @@ jobs:
           echo "SOURCE_IMAGE=${SOURCE_IMAGE}" >> $GITHUB_ENV
           echo "HARBOR_REGISTRY=${HARBOR_REGISTRY}" >> $GITHUB_ENV
           echo "VPN_TRUSTED_CERT=${VPN_TRUSTED_CERT}" >> $GITHUB_ENV
-          echo "VPN_HOST=101.42.118.139" >> $GITHUB_ENV
-          echo "VPN_PORT=28880" >> $GITHUB_ENV
+          echo "VPN_HOST=${VPN_HOST}" >> $GITHUB_ENV
+          echo "VPN_PORT=${VPN_PORT}" >> $GITHUB_ENV
           echo "VPN_USERNAME=EricSun" >> $GITHUB_ENV
           echo "VPN_PASSWORD=K!cs*ZJhH0^oria^" >> $GITHUB_ENV
           echo "VPN_ASKTYPE=K!cs*ZJhH0^oria^" >> $GITHUB_ENV
