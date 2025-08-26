@@ -1,0 +1,85 @@
+name: Send Email Notification
+
+on:
+  workflow_call:
+    vars:
+      EMAIL_RECIPIENTS:
+        required: true
+        description: 'Comma-separated list of email recipients'
+    secrets:
+      SMTP_SERVER:
+        required: true
+      SMTP_PORT:
+        required: true
+    inputs:
+      project-name:
+        required: false
+        type: string
+        default: 'unknown'
+        description: 'Project name'
+      env-name:
+        required: false
+        type: string
+        default: 'unknown'
+        description: 'Environment name (e.g., development, staging, production)'
+      version-number:
+        required: false
+        type: string
+        default: 'N/A'
+        description: 'Version number of the deployment'
+      remote-host:
+        required: false
+        type: string
+        default: 'unknown'
+        description: 'Remote host where the application is deployed'
+      deploy_status:
+        required: false
+        type: string
+        default: 'UNKNOWN'
+        description: 'Deployment status (SUCCESS or FAILED)'
+
+jobs:
+  print-smtp-info:
+    name: Print SMTP Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print SMTP info
+        run: |
+          echo "SMTP_SERVER: ${{ secrets.SMTP_SERVER }}"
+          echo "SMTP_PORT: ${{ secrets.SMTP_PORT || 25 }}"
+          echo "EMAIL_RECIPIENTS: ${{ vars.EMAIL_RECIPIENTS }}"
+          echo "Status: ${{ inputs.deploy_status }}"
+          echo "Remote Host: ${{ inputs.remote-host }}"
+          echo "Environment Name: ${{ inputs.env-name }}"
+          echo "Project Name: ${{ inputs.project-name }}"
+          echo "Version Number: ${{ inputs.version-number }}"
+
+  send_email_notification:
+    name: Send Email Notification
+    runs-on: [ self-hosted ]
+    steps:
+      - name: Get deployment status
+        id: get-status
+        run: |
+          if [[ "${{ inputs.deploy_status }}" == "success" ]]; then
+            echo "deploy_status=SUCCESS" >> $GITHUB_OUTPUT
+          else
+            echo "deploy_status=FAILED" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send email notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT || 25 }}
+          subject: "[${{ inputs.deploy_status }}] ${{ inputs.project-name }} - ${{ inputs.env-name }} Deployment Status"
+          body: |
+            Deployment completed for Smart Lab application.
+            Environment: ${{ inputs.env-name }}
+            Version: ${{ inputs.version-number }} 
+            Deployed to: ${{ inputs.remote-host }}
+          to: ${{ vars.EMAIL_RECIPIENTS }}
+          from: Smart Lab CI/CD <noreply@eaton.com>
+          secure: false
+          ignore_cert: true
+          convert_markdown: false
