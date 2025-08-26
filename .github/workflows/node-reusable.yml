@@ -1,0 +1,117 @@
+name: Build Node.js Project
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '18'
+      package_manager:
+        description: 'Package manager (npm, yarn, pnpm)'
+        required: false
+        type: string
+        default: 'npm'
+      build_command:
+        description: 'Build command'
+        required: false
+        type: string
+        default: 'build'
+      working_directory:
+        description: 'Directory containing the project'
+        required: false
+        type: string
+        default: '.'
+      cache_dependency_path:
+        description: 'Path to dependency file (package.json, yarn.lock)'
+        required: false
+        type: string
+        default: 'package.json'
+      artifacts_path:
+        description: 'Path to build artifacts'
+        required: false
+        type: string
+        default: 'dist'
+      pre_build_command:
+        description: 'Command to run before build'
+        required: false
+        type: string
+        default: ''
+      run_tests:
+        description: 'Run tests before build'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      build_result:
+        description: 'Result of the build process'
+        value: ${{ jobs.build.outputs.build_result }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      build_result: ${{ steps.build_output.outputs.status }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ inputs.node_version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ inputs.working_directory }}/${{ inputs.cache_dependency_path }}
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ "${{ inputs.package_manager }}" == "yarn" ]; then
+            yarn install --frozen-lockfile
+          elif [ "${{ inputs.package_manager }}" == "pnpm" ]; then
+            npm install -g pnpm
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Run tests
+        if: ${{ inputs.run_tests }}
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ "${{ inputs.package_manager }}" == "yarn" ]; then
+            yarn test
+          elif [ "${{ inputs.package_manager }}" == "pnpm" ]; then
+            pnpm test
+          else
+            npm test
+          fi
+
+      - name: Run pre-build command
+        if: ${{ inputs.pre_build_command != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.pre_build_command }}
+
+      - name: Build project
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ "${{ inputs.package_manager }}" == "yarn" ]; then
+            yarn ${{ inputs.build_command }}
+          elif [ "${{ inputs.package_manager }}" == "pnpm" ]; then
+            pnpm ${{ inputs.build_command }}
+          else
+            npm run ${{ inputs.build_command }}
+          fi
+
+      - name: Set build result
+        id: build_output
+        run: echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: ${{ inputs.working_directory }}/${{ inputs.artifacts_path }}
+          retention-days: 7
