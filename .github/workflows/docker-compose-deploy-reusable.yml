@@ -144,7 +144,7 @@ jobs:
 
           # Get container ID from last command
           CONTAINER_ID=$(ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
-            "cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }}")
+            "export image='${{ inputs.image-url }}' ; cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }}")
 
           if [ -n "$CONTAINER_ID" ]; then
             echo "status=success" >> $GITHUB_OUTPUT
