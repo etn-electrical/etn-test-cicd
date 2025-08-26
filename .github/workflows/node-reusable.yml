@@ -47,13 +47,87 @@ on:
       build_result:
         description: 'Result of the build process'
         value: ${{ jobs.build.outputs.build_result }}
+      version:
+        description: 'Determined version for the build'
+        value: ${{ jobs.build.outputs.version }}
 
 jobs:
+  detect-version:
+    name: Detect Semantic Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags and branches
+
+      - name: Get latest version tag
+        id: get-latest-tag
+        run: |
+          LATEST_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "latest_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          # Extract version components
+          VERSION=${LATEST_TAG#v}
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f2)
+          PATCH=$(echo $VERSION | cut -d. -f3)
+          echo "major=${MAJOR}" >> $GITHUB_OUTPUT
+          echo "minor=${MINOR}" >> $GITHUB_OUTPUT
+          echo "patch=${PATCH}" >> $GITHUB_OUTPUT
+
+      - name: Determine version based on branch
+        id: set-version
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          MAJOR=${{ steps.get-latest-tag.outputs.major }}
+          MINOR=${{ steps.get-latest-tag.outputs.minor }}
+          PATCH=${{ steps.get-latest-tag.outputs.patch }}
+          
+          if [[ "$BRANCH_NAME" == main ]]; then
+            # Main branch: use the latest tag as is
+            # VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            VERSION="v${MAJOR}.$((MINOR + 1)).0"
+          elif [[ "$BRANCH_NAME" == develop ]]; then
+            # Develop branch: increment minor version and add -dev suffix
+            VERSION="v${MAJOR}.$((MINOR + 1)).0-dev.$(date +%Y%m%d%H%M)"
+          elif [[ "$BRANCH_NAME" == release/* ]]; then
+            # Release branch: use version from branch name or increment minor with -rc suffix
+            RELEASE_VERSION=${BRANCH_NAME#release/}
+            if [[ "$RELEASE_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              # If branch name contains version, use it
+              RELEASE_VERSION=${RELEASE_VERSION#v}
+              VERSION="v${RELEASE_VERSION}-rc.$(date +%Y%m%d%H%M)"
+            else
+              # Otherwise increment minor with -rc suffix
+              VERSION="v${MAJOR}.$((MINOR + 1)).0-rc.$(date +%Y%m%d%H%M)"
+            fi
+          elif [[ "$BRANCH_NAME" == hotfix/* ]]; then
+            # Hotfix branch: increment patch version and add -hotfix suffix
+            HOTFIX_NAME=${BRANCH_NAME#hotfix/}
+            VERSION="v${MAJOR}.${MINOR}.$((PATCH + 1))-hotfix.${HOTFIX_NAME}.$(date +%Y%m%d%H%M)"
+          elif [[ "$BRANCH_NAME" == feature/* ]]; then
+            # Feature branch: use current version with -feature suffix
+            FEATURE_NAME=${BRANCH_NAME#feature/}
+            VERSION="v${MAJOR}.${MINOR}.${PATCH}-feature.${FEATURE_NAME}.$(date +%Y%m%d%H%M)"
+          else
+            # Any other branch: use current version with branch name as suffix
+            SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9]/-/g')
+            VERSION="v${MAJOR}.${MINOR}.${PATCH}-${SAFE_BRANCH}.$(date +%Y%m%d%H%M)"
+          fi
+          
+          echo "Determined version: ${VERSION}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
   build:
     name: Build Node.js Project
+    needs: detect-version
     runs-on: ubuntu-latest
     outputs:
       build_result: ${{ steps.build_output.outputs.status }}
+      version: ${{ needs.detect-version.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -65,6 +139,36 @@ jobs:
           node-version: ${{ inputs.node_version }}
           cache: ${{ inputs.package_manager }}
           cache-dependency-path: ${{ inputs.working_directory }}/${{ inputs.cache_dependency_path }}
+
+      - name: Update Project Version
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          VERSION=${{ needs.detect-version.outputs.version }}
+          if [ -f package.json ]; then
+            echo "Updating version in package.json to $VERSION"
+            npm version $VERSION --no-git-tag-version
+          else
+            echo "No package.json found, skipping version update"
+          fi
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -d '/' -f 2)
+          BRANCH_NAME=${{ github.ref_name }}
+          echo "Repository name: ${REPO_NAME}"
+          echo "Branch name: ${BRANCH_NAME}"
+          case "$REPO_NAME" in
+            "szcpc_suzhou_smart_lab_portal")
+                sed -i "s#VITE_VERSION_NUMBER=.*#VITE_VERSION_NUMBER=${VERSION}#ig" .env;
+                if [ "$BRANCH_NAME" == "main" ]; then
+                  echo "Configure project for production."
+                  sed -i 's#VITE_API_ADDR=.*#VITE_API_ADDR=/smart-lab#ig' .env;
+                else
+                  sed -i 's#VITE_API_ADDR=.*#VITE_API_ADDR=/api/lab#ig' .env;
+                fi
+                cat .env
+              ;;
+            *)
+              echo "No specific environment variable to set for this repository"
+              ;;
+          esac
 
       - name: Install dependencies
         working-directory: ${{ inputs.working_directory }}
