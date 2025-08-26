@@ -1,0 +1,193 @@
+name: Build Spring Boot Docker Image (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        required: false
+        type: string
+        default: 'app-artifact'
+        description: 'Name of the uploaded artifact to use'
+      image-name:
+        required: true
+        type: string
+        description: 'Name of the Docker image to build'
+      image-tag:
+        required: false
+        type: string
+        default: 'latest'
+        description: 'Tag for the Docker image'
+      dockerfile-path:
+        required: false
+        type: string
+        default: 'Dockerfile'
+        description: 'Path to the Dockerfile'
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version for the Docker image'
+      spring-profiles:
+        required: false
+        type: string
+        default: 'dev'
+        description: 'Spring profiles to activate'
+      registry:
+        required: false
+        type: string
+        default: 'ghcr.io'
+        description: 'Container registry URL'
+      push-image:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to push the image to registry'
+    outputs:
+      image-uri:
+        description: "Full URI of the pushed Docker image"
+        value: ${{ jobs.build-docker.outputs.image-uri }}
+      image-digest:
+        description: "Digest of the pushed Docker image"
+        value: ${{ jobs.build-docker.outputs.image-digest }}
+      push-status:
+        description: "Status of the image push operation"
+        value: ${{ jobs.build-docker.outputs.push-status }}
+
+jobs:
+  build-docker:
+    name: Build Spring Boot Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      image-uri: ${{ steps.set-outputs.outputs.image-uri }}
+      image-digest: ${{ steps.build-push.outputs.digest }}
+      push-status: ${{ steps.set-outputs.outputs.push-status }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ./artifacts
+
+      - name: Setup Default Dockerfile
+        run: |
+          if [[ -z "${{ inputs.dockerfile-path }}" || "${{ inputs.dockerfile-path }}" == "none"  ||  ! -f "${{ inputs.dockerfile-path }}" ]]; 
+          then
+            echo "Creating default Dockerfile since path is 'none' or file doesn't exist"
+          cat > Dockerfile <<- EOF
+              FROM eclipse-temurin:${{ inputs.java-version }}-jre-alpine
+              WORKDIR /app
+              COPY ./app/*.jar app.jar
+              ENV JAVA_OPTS=""
+              ENTRYPOINT ["sh", "-c", "java \${JAVA_OPTS} -jar app.jar"]
+          EOF
+            echo "Default Dockerfile created successfully"
+          else
+            echo "Using existing Dockerfile at ${{ inputs.dockerfile-path }}"
+          fi
+          cat "${{ inputs.dockerfile-path }}" || echo "Dockerfile not found at specified path, using default Dockerfile"
+
+      - name: Extract Spring Boot JAR
+        run: |
+          mkdir -p ./app
+          echo "Listing artifact directory contents:"
+          ls -la ./artifacts
+
+          # First check if we have any files at all
+          if [ -z "$(ls -A ./artifacts 2>/dev/null)" ]; then
+            echo "Error: Artifacts directory is empty or doesn't exist"
+            exit 1
+          fi
+
+          # Extract based on file type
+          if ls ./artifacts/*.zip 1>/dev/null 2>&1; then
+            echo "Found ZIP file, extracting..."
+            unzip -o ./artifacts/*.zip -d ./app
+          elif ls ./artifacts/*.jar 1>/dev/null 2>&1; then
+            echo "Found JAR file, copying..."
+            cp ./artifacts/*.jar ./app/
+          elif [ -d "./artifacts/target" ] && ls ./artifacts/target/*.jar 1>/dev/null 2>&1; then
+            echo "Found JAR in target directory, copying..."
+            cp ./artifacts/target/*.jar ./app/
+          else
+            echo "Error: No JAR or ZIP found in artifacts directory structure"
+            find ./artifacts -type f | sort
+            exit 1
+          fi
+
+          echo "Extracted application files in app directory:"
+          ls -la ./app
+
+          # Verify we have the JAR file
+          if ! ls ./app/*.jar 1>/dev/null 2>&1; then
+            echo "Error: No JAR file found in app directory after extraction"
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        if: ${{ inputs.push-image }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ inputs.dockerfile-path }}
+          push: ${{ inputs.push-image }}
+          tags: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+          labels: |
+            com.etn.cpc.iot.image.title=Application for ${{ inputs.image-name }}
+            com.etn.cpc.iot.image.description=CPC Iot Application: ${{ inputs.image-name }}
+            com.etn.cpc.iot.image.vendor=${{ github.repository_owner }}
+            com.etn.cpc.iot.image.version=${{ inputs.image-tag }}
+            com.etn.cpc.iot.image.created={{date 'yyyy-MM-dd'}}
+            com.etn.cpc.iot.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            JAR_FILE=./app/*.jar
+            JAVA_VERSION=${{ inputs.java-version }}
+            SPRING_PROFILES_ACTIVE=${{ inputs.spring-profiles }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: echo "Pushed image with digest ${{ steps.build-push.outputs.digest }}"
+
+      - name: Summary
+        run: |
+          echo "## GitHub Runner Image Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "* Image Version: ${{ inputs.image-tag  }}" >> $GITHUB_STEP_SUMMARY
+          echo "* Image: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Set outputs
+        id: set-outputs
+        run: |
+          IMAGE_URI="${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          
+          if [ "${{ inputs.push-image }}" = "true" ]; then
+            echo "push-status=success" >> $GITHUB_OUTPUT
+            echo "Image successfully pushed to: ${IMAGE_URI}" 
+            echo "Image digest: ${{ steps.build-push.outputs.digest }}"
+          else
+            echo "push-status=skipped" >> $GITHUB_OUTPUT
+            echo "Image push was skipped"
+          fi
+
+      - name: Image details
+        run: |
+          IMAGE_URI="${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
+          echo "::group::Docker Image Information"
+          echo "Image URI: ${{ steps.set-outputs.outputs.image-uri }}"
+          echo "Image digest: ${{ steps.build-push.outputs.digest }}"
+          echo "Image URL: ${IMAGE_URI}"
+          echo "::endgroup::"

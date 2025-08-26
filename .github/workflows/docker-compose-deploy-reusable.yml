@@ -1,0 +1,168 @@
+name: Docker Compose Deploy Workflow (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      image-url:
+        required: true
+        type: string
+        description: 'Docker image URL to deploy'
+      remote-host:
+        required: true
+        type: string
+        description: 'SSH host address of remote server'
+      remote-user:
+        required: false
+        type: string
+        default: 'root'
+        description: 'SSH user for remote server'
+      remote-port:
+        required: false
+        type: string
+        default: '22'
+        description: 'SSH port for remote server'
+      compose-file:
+        required: false
+        type: string
+        default: 'docker-compose.yml'
+        description: 'Path to docker-compose file on remote server'
+      service-name:
+        required: false
+        type: string
+        default: 'app'
+        description: 'Service name in docker-compose file'
+      environment:
+        required: false
+        type: string
+        default: 'development'
+        description: 'Environment to deploy to'
+      env-file:
+        required: false
+        type: string
+        default: '.env'
+        description: 'Path to env file for docker-compose on remote server'
+      remote-working-dir:
+        required: false
+        type: string
+        default: '/opt/app'
+        description: 'Working directory on remote server'
+      wait-time:
+        required: false
+        type: number
+        default: 30
+        description: 'Time to wait for service to start (seconds)'
+      runner-label:
+        required: false
+        type: string
+        default: 'self-hosted'
+        description: 'Label for self-hosted runner'
+    outputs:
+      deployment-status:
+        description: "Status of the deployment"
+        value: ${{ jobs.deploy-docker.outputs.status }}
+      container-id:
+        description: "ID of the deployed container"
+        value: ${{ jobs.deploy-docker.outputs.container-id }}
+
+jobs:
+  deploy-docker:
+    name: Deploy Docker Image
+    runs-on: [ self-hosted ,'${{ inputs.runner-label }}' ]
+    outputs:
+      status: ${{ steps.deploy.outputs.status }}
+      container-id: ${{ steps.deploy.outputs.container-id }}
+
+    steps:
+#      - name: Install SSH key
+#        uses: shimataro/ssh-key-action@v2
+#        with:
+#          key: ${{ inputs.ssh-private-key }}
+#          known_hosts: 'just-a-placeholder'
+#          if_key_exists: replace
+#
+#      - name: Add to known_hosts
+#        run: ssh-keyscan -p ${{ inputs.remote-port }} ${{ inputs.remote-host }} >> ~/.ssh/known_hosts
+
+      - name: Create remote directories if not exist
+        run: |
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} "mkdir -p ${{ inputs.remote-working-dir }}"
+
+      - name: Create .env file if not exists
+        run: |
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
+          "if [ ! -f \"${{ inputs.remote-working-dir }}/${{ inputs.env-file }}\" ]; then \
+            echo 'Creating empty .env file'; \
+            touch ${{ inputs.remote-working-dir }}/${{ inputs.env-file }}; \
+          fi"
+
+      - name: Create docker-compose override
+        run: |
+          # Creating the docker-compose override remotely
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} "cat > ${{ inputs.remote-working-dir }}/docker-compose.override.yml << 'EOL'
+          version: '3'
+          services:
+            ${{ inputs.service-name }}:
+              image: ${{ inputs.image-url }}
+          EOL"
+          
+          echo "Created docker-compose override file on remote server"
+
+      - name: Verify compose file exists
+        run: |
+          if ! ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} "[ -f \"${{ inputs.remote-working-dir }}/${{ inputs.compose-file }}\" ]"; then
+            echo "::error::Docker-compose file not found: ${{ inputs.compose-file }}"
+            exit 1
+          fi
+
+      - name: Pull Docker image on remote server
+        run: |
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
+          "cd ${{ inputs.remote-working-dir }} && export image='${{ inputs.image-url }}' &&  \
+           docker-compose -f ${{ inputs.compose-file }} pull ${{ inputs.service-name }}"
+
+      - name: Deploy with docker-compose on remote server
+        id: deploy
+        run: |
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} "cd ${{ inputs.remote-working-dir }} && \
+           export image='${{ inputs.image-url }}' && \
+           echo 'Stopping any existing containers for ${{ inputs.service-name }}...' && \
+           docker-compose -f ${{ inputs.compose-file }} stop ${{ inputs.service-name }} || true && \
+           docker-compose -f ${{ inputs.compose-file }} rm -f ${{ inputs.service-name }} || true && \
+           echo 'Starting container from image ${{ inputs.image-url }}...' && \
+           docker-compose -f ${{ inputs.compose-file }} up -d ${{ inputs.service-name }} && \
+           echo 'Waiting for service to start (${{ inputs.wait-time }}s)...' && \
+           sleep ${{ inputs.wait-time }} && \
+           if docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} | grep -q 'Up'; then \
+             CONTAINER_ID=\$(docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }}) && \
+             echo \"Container successfully started with ID: \$CONTAINER_ID\" && \
+             echo \"CONTAINER_ID=\$CONTAINER_ID\"; \
+           else \
+             echo '::error::Container failed to start properly' && \
+             docker-compose -f ${{ inputs.compose-file }} logs ${{ inputs.service-name }} && \
+             exit 1; \
+           fi"
+
+          # Get container ID from last command
+          CONTAINER_ID=$(ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
+            "export image='${{ inputs.image-url }}' ; cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps -q ${{ inputs.service-name }}")
+
+          if [ -n "$CONTAINER_ID" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "container-id=$CONTAINER_ID" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "container-id=none" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Print container logs
+        if: always()
+        run: |
+          echo "::group::Container Logs"
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
+          "cd ${{ inputs.remote-working-dir }} && export image='${{ inputs.image-url }}' && docker-compose -f ${{ inputs.compose-file }} logs ${{ inputs.service-name }}"
+          echo "::endgroup::"
+
+          echo "::group::Container Status"
+          ssh -p ${{ inputs.remote-port }} ${{ inputs.remote-user }}@${{ inputs.remote-host }} \
+          "cd ${{ inputs.remote-working-dir }} && docker-compose -f ${{ inputs.compose-file }} ps ${{ inputs.service-name }} && docker system prune --all -f"
+          echo "::endgroup::"

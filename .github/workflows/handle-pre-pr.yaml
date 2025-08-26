@@ -1,0 +1,667 @@
+name: Handle Pre-PR Events
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - main
+      - develop
+      - 'release/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  issues: write
+  security-events: write
+  actions: read
+
+env:
+  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+
+jobs:
+  analyze-changes:
+    name: Analyze Changed Files
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    outputs:
+      java-files: ${{ steps.file-analysis.outputs.java-files }}
+      xml-files: ${{ steps.file-analysis.outputs.xml-files }}
+      yaml-files: ${{ steps.file-analysis.outputs.yaml-files }}
+      prop-files: ${{ steps.file-analysis.outputs.prop-files }}
+      has-spring-annotations: ${{ steps.file-analysis.outputs.has-spring-annotations }}
+      has-config-changes: ${{ steps.file-analysis.outputs.has-config-changes }}
+      has-pom-changes: ${{ steps.file-analysis.outputs.has-pom-changes }}
+      has-workflow-changes: ${{ steps.file-analysis.outputs.has-workflow-changes }}
+      has-security-changes: ${{ steps.file-analysis.outputs.has-security-changes }}
+      has-db-changes: ${{ steps.file-analysis.outputs.has-db-changes }}
+      has-test-changes: ${{ steps.file-analysis.outputs.has-test-changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.PR_HEAD_SHA }}
+
+      - name: Analyze changed files
+        id: file-analysis
+        run: |
+          # Generate changed files list once
+          git diff --name-only ${{ env.PR_BASE_SHA }}..${{ env.PR_HEAD_SHA }} > changed_files.txt
+          
+          # Count files by type
+          java_files=$(grep -E '\.(java)$' changed_files.txt | wc -l)
+          xml_files=$(grep -E '\.(xml)$' changed_files.txt | wc -l)
+          yaml_files=$(grep -E '\.(yaml|yml)$' changed_files.txt | wc -l)
+          prop_files=$(grep -E '\.(properties)$' changed_files.txt | wc -l)
+          
+          # Check for specific patterns
+          has_spring_annotations=$(grep -qE "(Controller|Service|Repository|Component|Entity)" changed_files.txt && echo "true" || echo "false")
+          has_config_changes=$(grep -qE "application\.(yml|yaml|properties)|logback" changed_files.txt && echo "true" || echo "false")
+          has_pom_changes=$(grep -qE "pom\.xml" changed_files.txt && echo "true" || echo "false")
+          has_workflow_changes=$(grep -qE "\.github/workflows" changed_files.txt && echo "true" || echo "false")
+          has_security_changes=$(grep -qE "(security|auth|token|password|key)" changed_files.txt && echo "true" || echo "false")
+          has_db_changes=$(grep -qE "(schema|migration|flyway|liquibase)" changed_files.txt && echo "true" || echo "false")
+          has_test_changes=$(grep -qE "Test\.java$" changed_files.txt && echo "true" || echo "false")
+          
+          # Set outputs
+          echo "java-files=$java_files" >> $GITHUB_OUTPUT
+          echo "xml-files=$xml_files" >> $GITHUB_OUTPUT
+          echo "yaml-files=$yaml_files" >> $GITHUB_OUTPUT
+          echo "prop-files=$prop_files" >> $GITHUB_OUTPUT
+          echo "has-spring-annotations=$has_spring_annotations" >> $GITHUB_OUTPUT
+          echo "has-config-changes=$has_config_changes" >> $GITHUB_OUTPUT
+          echo "has-pom-changes=$has_pom_changes" >> $GITHUB_OUTPUT
+          echo "has-workflow-changes=$has_workflow_changes" >> $GITHUB_OUTPUT
+          echo "has-security-changes=$has_security_changes" >> $GITHUB_OUTPUT
+          echo "has-db-changes=$has_db_changes" >> $GITHUB_OUTPUT
+          echo "has-test-changes=$has_test_changes" >> $GITHUB_OUTPUT
+
+      - name: Upload changed files list
+        uses: actions/upload-artifact@v4
+        with:
+          name: changed-files-${{ env.PR_NUMBER }}
+          path: changed_files.txt
+          retention-days: 30
+
+  code-review:
+    name: Basic Code Analysis
+    runs-on: ubuntu-latest
+    needs: analyze-changes
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.PR_HEAD_SHA }}
+
+      - name: Setup Java and Maven
+        uses: ./.github/actions/setup-java-maven
+
+      - name: Generate basic analysis
+        run: |
+          echo "## 🤖 Basic Code Analysis" > ai_analysis.md
+          echo "" >> ai_analysis.md
+          
+          echo "### 📁 Changed Files Analysis" >> ai_analysis.md
+          echo "- **Java files changed:** ${{ needs.analyze-changes.outputs.java-files }}" >> ai_analysis.md
+          echo "- **XML files changed:** ${{ needs.analyze-changes.outputs.xml-files }}" >> ai_analysis.md
+          echo "- **YAML files changed:** ${{ needs.analyze-changes.outputs.yaml-files }}" >> ai_analysis.md
+          echo "- **Properties files changed:** ${{ needs.analyze-changes.outputs.prop-files }}" >> ai_analysis.md
+          echo "" >> ai_analysis.md
+          
+          echo "### 🍃 Spring Boot Pattern Analysis" >> ai_analysis.md
+          if [ "${{ needs.analyze-changes.outputs.has-spring-annotations }}" = "true" ]; then
+            echo "- ✅ **Spring annotations detected** - Review for proper usage" >> ai_analysis.md
+          fi
+          
+          if [ "${{ needs.analyze-changes.outputs.has-config-changes }}" = "true" ]; then
+            echo "- ⚙️ **Configuration changes detected** - Verify settings" >> ai_analysis.md
+          fi
+          
+          if [ "${{ needs.analyze-changes.outputs.has-pom-changes }}" = "true" ]; then
+            echo "- 📦 **Maven configuration changed** - Review dependencies" >> ai_analysis.md
+          fi
+          echo "" >> ai_analysis.md
+          
+          echo "### 📋 Manual Review Recommendations" >> ai_analysis.md
+          echo "- Review code for Spring Boot best practices" >> ai_analysis.md
+          echo "- Check security configurations" >> ai_analysis.md
+          echo "- Validate error handling patterns" >> ai_analysis.md
+          echo "- Ensure proper logging implementation" >> ai_analysis.md
+          echo "- Verify test coverage for new functionality" >> ai_analysis.md
+
+      - name: Upload basic analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: basic-analysis-${{ env.PR_NUMBER }}
+          path: ai_analysis.md
+          retention-days: 30
+
+  code-scanning:
+    name: Code Quality & Security Scanning
+    runs-on: ubuntu-latest
+    needs: analyze-changes
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.PR_HEAD_SHA }}
+
+      - name: Setup Java and Maven
+        uses: ./.github/actions/setup-java-maven
+
+      - name: Create analysis plugins helper
+        run: |
+          cat << 'EOF' > add_analysis_plugins.sh
+          #!/bin/bash
+          
+          # Function to add plugin if not exists
+          add_plugin_if_missing() {
+            local group_id=$1
+            local artifact_id=$2
+            local plugin_file=$3
+            
+            if ! grep -q "$group_id" pom.xml || ! grep -A 5 "$group_id" pom.xml | grep -q "$artifact_id"; then
+              echo "Adding $artifact_id plugin..."
+              if grep -q "<build>" pom.xml && grep -q "<plugins>" pom.xml; then
+                # Insert before </plugins> closing tag
+                sed -i '/<\/plugins>/e cat '"$plugin_file" pom.xml
+              else
+                # Add build section after dependencies
+                sed -i '/<\/dependencies>/r '"$plugin_file" pom.xml
+                sed -i '/<\/dependencies>/a\\n    <build>\n        <plugins>' pom.xml
+                echo '        </plugins>\n    </build>' >> temp_build_end.xml
+                sed -i '/<\/project>/e cat temp_build_end.xml' pom.xml
+                rm -f temp_build_end.xml
+              fi
+            fi
+          }
+          
+          # Create SpotBugs plugin file
+          cat << 'SPOTBUGS_EOF' > spotbugs_plugin.xml
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.8.6.4</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <xmlOutput>true</xmlOutput>
+                    <failOnError>false</failOnError>
+                </configuration>
+            </plugin>
+          SPOTBUGS_EOF
+          
+          # Create JaCoCo plugin file
+          cat << 'JACOCO_EOF' > jacoco_plugin.xml
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+          JACOCO_EOF
+          
+          # Add plugins
+          add_plugin_if_missing "com.github.spotbugs" "spotbugs-maven-plugin" "spotbugs_plugin.xml"
+          add_plugin_if_missing "org.jacoco" "jacoco-maven-plugin" "jacoco_plugin.xml"
+          
+          # Clean up temp files
+          rm -f spotbugs_plugin.xml jacoco_plugin.xml
+          EOF
+          
+          chmod +x add_analysis_plugins.sh
+
+      - name: Prepare pom.xml for analysis
+        run: |
+          # Use existing script if available, otherwise modify pom.xml inline
+          if [ -f "scripts/check-and-update-pom.sh" ]; then
+            echo "Using existing pom.xml preparation script..."
+            chmod +x scripts/check-and-update-pom.sh
+            ./scripts/check-and-update-pom.sh
+          else
+            echo "Preparing pom.xml for analysis tools..."
+            cp pom.xml pom.xml.original
+            
+            # Add required plugins if missing
+            ./add_analysis_plugins.sh
+          fi
+
+      - name: Build project for analysis
+        run: |
+          mvn clean compile -DskipTests
+
+      - name: Create JaCoCo summary generator
+        run: |
+          cat << 'EOF' > generate_jacoco_summary.sh
+          #!/bin/bash
+          
+          echo "# 🧪 JaCoCo Test Coverage Report" > jacoco_summary.md
+          echo "" >> jacoco_summary.md
+          echo "Generated on: $(date)" >> jacoco_summary.md
+          echo "" >> jacoco_summary.md
+          
+          if [ -f "target/site/jacoco/index.html" ]; then
+            echo "## ✅ Coverage Report Status" >> jacoco_summary.md
+            echo "- **Status:** Successfully generated" >> jacoco_summary.md
+            echo "- **Report Location:** target/site/jacoco/index.html" >> jacoco_summary.md
+            echo "- **XML Report:** target/site/jacoco/jacoco.xml" >> jacoco_summary.md
+            echo "" >> jacoco_summary.md
+            
+            # Extract coverage metrics if XML exists
+            if command -v xmllint >/dev/null 2>&1 && [ -f "target/site/jacoco/jacoco.xml" ]; then
+              echo "## 📊 Coverage Metrics" >> jacoco_summary.md
+              echo "" >> jacoco_summary.md
+              
+              # Function to extract and format coverage data
+              extract_coverage() {
+                local type=$1
+                local icon=$2
+                local name=$3
+                
+                covered=$(xmllint --xpath "string(//report/counter[@type='$type']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+                missed=$(xmllint --xpath "string(//report/counter[@type='$type']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+                
+                if [ "$covered" != "0" ] || [ "$missed" != "0" ]; then
+                  total=$((covered + missed))
+                  if [ $total -gt 0 ]; then
+                    percentage=$(awk "BEGIN {printf \"%.2f\", $covered * 100 / $total}" 2>/dev/null || echo "0.00")
+                    echo "### $icon $name Coverage" >> jacoco_summary.md
+                    echo "- **Covered:** $covered $(echo $name | tr '[:upper:]' '[:lower:]')" >> jacoco_summary.md
+                    echo "- **Missed:** $missed $(echo $name | tr '[:upper:]' '[:lower:]')" >> jacoco_summary.md
+                    echo "- **Total:** $total $(echo $name | tr '[:upper:]' '[:lower:]')" >> jacoco_summary.md
+                    echo "- **Percentage:** ${percentage}%" >> jacoco_summary.md
+                    echo "" >> jacoco_summary.md
+                  fi
+                fi
+              }
+              
+              # Extract all coverage types
+              extract_coverage "INSTRUCTION" "📈" "Instruction"
+              extract_coverage "LINE" "📊" "Line"
+              extract_coverage "BRANCH" "🌿" "Branch"
+              extract_coverage "METHOD" "🔧" "Method"
+              extract_coverage "CLASS" "🏛️" "Class"
+              
+              # Overall assessment
+              echo "## 📊 Coverage Analysis" >> jacoco_summary.md
+              echo "" >> jacoco_summary.md
+              
+              # Get overall percentage for assessment
+              coverage=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@covered)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              missed=$(xmllint --xpath "string(//report/counter[@type='INSTRUCTION']/@missed)" target/site/jacoco/jacoco.xml 2>/dev/null || echo "0")
+              
+              if [ "$coverage" != "0" ] && [ "$missed" != "0" ]; then
+                total=$((coverage + missed))
+                if [ $total -gt 0 ]; then
+                  percentage=$(awk "BEGIN {printf \"%.0f\", $coverage * 100 / $total}" 2>/dev/null || echo "0")
+                  
+                  if [ $percentage -ge 80 ]; then
+                    echo "✅ **Coverage Quality:** Excellent (${percentage}%)" >> jacoco_summary.md
+                  elif [ $percentage -ge 70 ]; then
+                    echo "🟡 **Coverage Quality:** Good (${percentage}%)" >> jacoco_summary.md
+                  elif [ $percentage -ge 50 ]; then
+                    echo "🟠 **Coverage Quality:** Fair (${percentage}%)" >> jacoco_summary.md
+                  else
+                    echo "🔴 **Coverage Quality:** Poor (${percentage}%)" >> jacoco_summary.md
+                  fi
+                fi
+              fi
+              
+              echo "" >> jacoco_summary.md
+              echo "### 🎯 Recommendations" >> jacoco_summary.md
+              echo "- Add unit tests for uncovered methods and classes" >> jacoco_summary.md
+              echo "- Focus on testing edge cases and error conditions" >> jacoco_summary.md
+              echo "- Ensure all business logic paths are tested" >> jacoco_summary.md
+              echo "- Consider integration tests for complex workflows" >> jacoco_summary.md
+            else
+              echo "## ⚠️ Coverage Metrics" >> jacoco_summary.md
+              echo "- Unable to parse detailed coverage metrics" >> jacoco_summary.md
+              echo "- XML report may be missing or malformed" >> jacoco_summary.md
+            fi
+          else
+            echo "## ❌ Coverage Report Status" >> jacoco_summary.md
+            echo "- **Status:** Failed to generate coverage report" >> jacoco_summary.md
+            echo "- **Recommendation:** Check test execution logs" >> jacoco_summary.md
+          fi
+          
+          echo "" >> jacoco_summary.md
+          echo "---" >> jacoco_summary.md
+          echo "*For detailed coverage analysis, download the artifacts and open the HTML report*" >> jacoco_summary.md
+          EOF
+          
+          chmod +x generate_jacoco_summary.sh
+
+      - name: Run code quality analysis
+        run: |
+          echo "Running comprehensive code analysis..."
+          
+          # Run all analyses in parallel where possible
+          (mvn spotbugs:spotbugs || echo "SpotBugs completed with warnings") &
+          (mvn pmd:pmd pmd:cpd || echo "PMD completed with warnings") &
+          
+          # Wait for static analysis to complete
+          wait
+          
+          # Run tests with coverage
+          mvn clean test -Dmaven.test.failure.ignore=true jacoco:report || echo "Tests completed with coverage"
+
+      - name: Generate comprehensive quality report
+        run: |
+          echo "## 📊 Code Quality & Security Report" > quality_report.md
+          echo "" >> quality_report.md
+
+          # PMD Results
+          echo "### 📏 Code Quality (PMD)" >> quality_report.md
+          if [ -f "target/pmd.xml" ]; then
+            violations=$(grep -c "<violation" target/pmd.xml 2>/dev/null || echo "0")
+            echo "- 📊 **PMD violations:** $violations" >> quality_report.md
+            [ "$violations" -gt 0 ] && echo "- 📄 **Details:** Check PMD report in artifacts" >> quality_report.md
+          else
+            echo "- ⚠️ **PMD analysis:** Report not generated" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # SpotBugs Results
+          echo "### 🐛 Bug Analysis (SpotBugs)" >> quality_report.md
+          if [ -f "target/spotbugsXml.xml" ]; then
+            bugs=$(grep -c "<BugInstance" target/spotbugsXml.xml 2>/dev/null || echo "0")
+            echo "- 🔍 **Potential bugs found:** $bugs" >> quality_report.md
+            [ "$bugs" -gt 0 ] && echo "- 📄 **Details:** Check SpotBugs report in artifacts" >> quality_report.md
+          else
+            echo "- ⚠️ **SpotBugs analysis:** Report not generated" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # Generate JaCoCo summary
+          ./generate_jacoco_summary.sh
+          
+          # Add coverage reference to quality report
+          echo "### 🧪 Test Coverage Analysis" >> quality_report.md
+          if [ -f "target/site/jacoco/index.html" ]; then
+            echo "- ✅ **Coverage analysis completed**" >> quality_report.md
+            echo "- 📊 **Summary:** See coverage details in separate report" >> quality_report.md
+            echo "- 📄 **Full report:** Available in artifacts" >> quality_report.md
+          else
+            echo "- ❌ **Coverage analysis failed** - Check test execution" >> quality_report.md
+          fi
+          echo "" >> quality_report.md
+
+          # Summary of scan results
+          echo "### 📋 Scan Summary" >> quality_report.md
+          echo "**Completed Scans:**" >> quality_report.md
+          [ -f "target/pmd.xml" ] && echo "- ✅ PMD Code Quality" >> quality_report.md || echo "- ❌ PMD Code Quality" >> quality_report.md
+          [ -f "target/spotbugsXml.xml" ] && echo "- ✅ SpotBugs Analysis" >> quality_report.md || echo "- ❌ SpotBugs Analysis" >> quality_report.md
+          [ -f "target/site/jacoco/index.html" ] && echo "- ✅ JaCoCo Coverage Analysis" >> quality_report.md || echo "- ❌ JaCoCo Coverage Analysis" >> quality_report.md
+          echo "" >> quality_report.md
+          echo "*Note: Failed scans do not prevent workflow completion. Check individual scan logs for details.*" >> quality_report.md
+
+      - name: Cleanup and restore
+        run: |
+          # Restore original pom.xml if we have a backup
+          [ -f "pom.xml.original" ] && mv pom.xml.original pom.xml || true
+          [ -f "pom.xml.backup" ] && mv pom.xml.backup pom.xml || true
+          [ -f "pom.xml.jacoco.backup" ] && mv pom.xml.jacoco.backup pom.xml || true
+        if: always()
+
+      - name: Upload quality reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports-${{ env.PR_NUMBER }}
+          path: |
+            quality_report.md
+            jacoco_summary.md
+            target/pmd.xml
+            target/spotbugsXml.xml
+            target/site/jacoco/
+          retention-days: 30
+        if: always()
+
+  pr-analysis:
+    name: PR Analysis and Comments
+    runs-on: ubuntu-latest
+    needs: [analyze-changes, code-review, code-scanning]
+    if: always() && github.event.pull_request.draft == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.PR_HEAD_SHA }}
+
+      - name: Setup Java and Maven
+        uses: ./.github/actions/setup-java-maven
+
+      - name: Download reports
+        run: |
+          # Download all artifacts
+          mkdir -p ./reports
+        continue-on-error: false
+
+      - name: Download quality reports
+        uses: actions/download-artifact@v4
+        with:
+          name: quality-reports-${{ env.PR_NUMBER }}
+          path: ./reports/quality/
+        continue-on-error: false
+
+      - name: Download basic analysis
+        uses: actions/download-artifact@v4
+        with:
+          name: basic-analysis-${{ env.PR_NUMBER }}
+          path: ./reports/basic/
+        continue-on-error: false
+
+      - name: Download changed files
+        uses: actions/download-artifact@v4
+        with:
+          name: changed-files-${{ env.PR_NUMBER }}
+          path: ./reports/changes/
+        continue-on-error: false
+
+      - name: Generate comprehensive analysis
+        run: |
+          echo "## 📊 Pull Request Analysis" > pr_analysis.md
+          echo "" >> pr_analysis.md
+
+          # PR information
+          echo "**Branch:** \`${{ github.event.pull_request.head.ref }}\` → \`${{ github.event.pull_request.base.ref }}\`" >> pr_analysis.md
+          echo "**Author:** @${{ github.event.pull_request.user.login }}" >> pr_analysis.md
+          echo "**Commits:** ${{ github.event.pull_request.commits }}" >> pr_analysis.md
+          echo "" >> pr_analysis.md
+
+          # Basic analysis section
+          if [ -f "./reports/basic/ai_analysis.md" ]; then
+            echo "### 🤖 Basic Code Analysis" >> pr_analysis.md
+            echo "*(Detailed analysis available in job artifacts)*" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+            cat ./reports/basic/ai_analysis.md | tail -n +3 >> pr_analysis.md
+            echo "" >> pr_analysis.md
+          else
+            echo "### 🤖 Basic Code Analysis" >> pr_analysis.md
+            echo "- ⚠️ **Basic analysis:** Not available - check analysis job logs" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+          fi
+
+          # Quality report section
+          if [ -f "./reports/quality/quality_report.md" ]; then
+            echo "### 📊 Code Quality & Security Summary" >> pr_analysis.md
+            echo "*(Full quality report available in job artifacts)*" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+            cat ./reports/quality/quality_report.md | tail -n +3 >> pr_analysis.md
+          else
+            echo "### 📊 Code Quality & Security Summary" >> pr_analysis.md
+            echo "- ⚠️ **Quality report:** Not available - check scanning job logs" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+          fi
+
+          # Coverage analysis section
+          if [ -f "./reports/quality/jacoco_summary.md" ]; then
+            echo "### 🧪 Test Coverage Analysis" >> pr_analysis.md
+            echo "*(Detailed coverage report available in job artifacts)*" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+            cat ./reports/quality/jacoco_summary.md | tail -n +2 >> pr_analysis.md
+            echo "" >> pr_analysis.md
+          else
+            echo "### 🧪 Test Coverage Analysis" >> pr_analysis.md
+            echo "- ⚠️ **Coverage report:** Not available - check coverage job logs" >> pr_analysis.md
+            echo "" >> pr_analysis.md
+          fi
+
+          # File changes summary (using data from analyze-changes job)
+          echo "### 📁 Files Changed" >> pr_analysis.md
+          echo "- **Java files:** ${{ needs.analyze-changes.outputs.java-files }}" >> pr_analysis.md
+          echo "- **XML files:** ${{ needs.analyze-changes.outputs.xml-files }}" >> pr_analysis.md
+          echo "- **YAML files:** ${{ needs.analyze-changes.outputs.yaml-files }}" >> pr_analysis.md
+          echo "- **Properties files:** ${{ needs.analyze-changes.outputs.prop-files }}" >> pr_analysis.md
+          echo "" >> pr_analysis.md
+
+          # Code review checklist (using outputs from analyze-changes)
+          echo "### 🔍 Code Review Checklist" >> pr_analysis.md
+          
+          # Check for specific patterns using job outputs
+          [ "${{ needs.analyze-changes.outputs.has-pom-changes }}" = "true" ] && \
+            echo "- ⚠️ **Maven dependencies changed** - Please review for security and necessity" >> pr_analysis.md
+
+          [ "${{ needs.analyze-changes.outputs.has-db-changes }}" = "true" ] && \
+            echo "- 🗄️ **Database changes detected** - Ensure backward compatibility" >> pr_analysis.md
+
+          [ "${{ needs.analyze-changes.outputs.has-config-changes }}" = "true" ] && \
+            echo "- ⚙️ **Configuration changes detected** - Verify environment-specific settings" >> pr_analysis.md
+
+          [ "${{ needs.analyze-changes.outputs.has-security-changes }}" = "true" ] && \
+            echo "- 🔐 **Security-related changes detected** - Extra scrutiny required" >> pr_analysis.md
+
+          [ "${{ needs.analyze-changes.outputs.has-workflow-changes }}" = "true" ] && \
+            echo "- 🔄 **Workflow changes detected** - Test CI/CD pipeline changes carefully" >> pr_analysis.md
+
+          echo "" >> pr_analysis.md
+
+      - name: Add test metrics
+        run: |
+          echo "### 🧪 Test & Build Information" >> pr_analysis.md
+
+          # Run tests to get current status
+          if mvn clean test -q; then
+            echo "- ✅ **Tests Status:** All tests passing" >> pr_analysis.md
+          else
+            echo "- ❌ **Tests Status:** Some tests are failing" >> pr_analysis.md
+          fi
+
+          # Test coverage information
+          if [ "${{ needs.analyze-changes.outputs.has-test-changes }}" = "true" ]; then
+            echo "- 🧪 **Test changes detected** - New or modified tests included" >> pr_analysis.md
+          else
+            echo "- ⚠️ **No test changes detected** - Consider adding tests for new functionality" >> pr_analysis.md
+          fi
+
+          # Calculate change metrics
+          total_lines_added=$(git diff --numstat ${{ env.PR_BASE_SHA }}..${{ env.PR_HEAD_SHA }} | awk '{sum+=$1} END {print sum}')
+          total_lines_removed=$(git diff --numstat ${{ env.PR_BASE_SHA }}..${{ env.PR_HEAD_SHA }} | awk '{sum+=$2} END {print sum}')
+
+          echo "- 📏 **Lines added:** ${total_lines_added:-0}" >> pr_analysis.md
+          echo "- 📏 **Lines removed:** ${total_lines_removed:-0}" >> pr_analysis.md
+
+          [ "${total_lines_added:-0}" -gt 500 ] && \
+            echo "- ⚠️ **Large PR detected** - Consider breaking into smaller PRs" >> pr_analysis.md
+
+          echo "" >> pr_analysis.md
+
+      - name: Add review guidelines
+        run: |
+          echo "### 📋 Review Guidelines" >> pr_analysis.md
+          echo "" >> pr_analysis.md
+          echo "**For Reviewers:**" >> pr_analysis.md
+          echo "- [ ] Review basic code analysis suggestions above" >> pr_analysis.md
+          echo "- [ ] Review quality reports in job artifacts" >> pr_analysis.md
+          echo "- [ ] Verify test coverage is adequate" >> pr_analysis.md
+          echo "- [ ] Code follows project coding standards" >> pr_analysis.md
+          echo "- [ ] Adequate test coverage for new functionality" >> pr_analysis.md
+          echo "- [ ] No hardcoded secrets or sensitive information" >> pr_analysis.md
+          echo "- [ ] Error handling is appropriate" >> pr_analysis.md
+          echo "- [ ] Documentation updated if needed" >> pr_analysis.md
+          echo "- [ ] Performance impact considered" >> pr_analysis.md
+          echo "- [ ] Breaking changes documented" >> pr_analysis.md
+          echo "" >> pr_analysis.md
+
+          echo "**Quality & Security Integration:**" >> pr_analysis.md
+          echo "- PMD and SpotBugs analysis for code quality" >> pr_analysis.md
+          echo "- JaCoCo test coverage reporting" >> pr_analysis.md
+          echo "- All reports available in workflow artifacts" >> pr_analysis.md
+          echo "" >> pr_analysis.md
+
+          echo "**Testing Recommendations:**" >> pr_analysis.md
+          echo "- Verify functionality in development environment" >> pr_analysis.md
+          echo "- Test edge cases and error scenarios" >> pr_analysis.md
+          echo "- Validate configuration changes" >> pr_analysis.md
+          echo "- Run security tests if applicable" >> pr_analysis.md
+          echo "" >> pr_analysis.md
+
+          echo "---" >> pr_analysis.md
+          echo "*Generated by GitHub Actions with comprehensive quality analysis on $(date)*" >> pr_analysis.md
+
+      - name: Comment on PR
+        if: success() && github.event.pull_request.draft == false
+        # Use GitHub Script to comment on the PR with the analysis
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const analysisContent = fs.readFileSync('pr_analysis.md', 'utf8');
+
+            // Check if we already commented on this PR
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('📊 Pull Request Analysis')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: analysisContent
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: analysisContent
+              });
+            }
+
+      - name: Upload final analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-analysis-${{ env.PR_NUMBER }}
+          path: |
+            pr_analysis.md
+          retention-days: 30

@@ -1,0 +1,152 @@
+name: Build and Test Workflow (Reusable)
+
+on:
+  workflow_call:
+    secrets:
+      PACKAGE_TOKEN:
+        required: true
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version to use for the build'
+      artifact-name:
+        required: false
+        type: string
+        default: 'app-artifact'
+        description: 'Name for the uploaded artifact'
+      maven-args:
+        required: false
+        type: string
+        default: 'clean package'
+        description: 'Maven arguments for build'
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to run tests'
+      dockerfile-path:
+        required: false
+        type: string
+        default: 'Dockerfile'
+        description: 'Path to the Dockerfile'
+    outputs:
+      artifact-name:
+        description: "Name of the uploaded artifact"
+        value: ${{ jobs.build-spring-boot.outputs.artifact-name }}
+      jar-path:
+        description: "Path to the built JAR file"
+        value: ${{ jobs.build-spring-boot.outputs.jar-path }}
+      image-url:
+        description: "URL of the built Docker image"
+        value: ${{ jobs.docker-build.outputs.image-uri }}
+      environment-name:
+        description: "Determined environment based on branch"
+        value: ${{ jobs.determine-environment.outputs.environment }}
+      version-number:
+        description: "Version number determined for the build"
+        value: ${{ jobs.determine-version.outputs.version }}
+
+permissions:
+  contents: write
+  packages: write
+  checks: write
+
+jobs:
+  print-github-info:
+    name: Print GitHub Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub event info
+        run: |
+          echo "GitHub Event Name: ${{ github.event_name }}"
+          echo "GitHub Repository: ${{ github.repository }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub Ref Name: ${{ github.ref_name }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "GitHub Actor: ${{ github.actor }}"
+          echo "GitHub Workflow: ${{ github.workflow }}"
+          echo "GitHub Workspace: ${{ github.workspace }}"
+          echo "GitHub Event Path: ${{ github.event_path }}"
+
+  determine-environment:
+    name: Determine Environment
+    uses: ./.github/workflows/environment.yml
+    with:
+      branch_name: ${{ github.ref_name }}
+
+  print-environment-info:
+    name: Print Environment Info
+    needs: [ determine-environment ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub Environment info
+        run: |
+          echo "Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "Need Deploy: ${{ needs.determine-environment.outputs.deploy }}"
+          echo "UAT: ${{ needs.determine-environment.outputs.is_uat }}"
+          echo "Staging: ${{ needs.determine-environment.outputs.is_staging }}"
+          echo "Development: ${{ needs.determine-environment.outputs.is_development }}"
+          echo "Production: ${{ needs.determine-environment.outputs.is_production }}"
+          echo "Testing: ${{ needs.determine-environment.outputs.is_testing }}"
+          echo "Branch Name: ${{ needs.determine-environment.outputs.branch_name }}"
+          
+  determine-version:
+    name: Determine Version
+    uses: ./.github/workflows/version.yml
+    with:
+      java-version: ${{ inputs.java-version }}
+
+  print-version-info:
+    name: Print Version Info
+    needs: [determine-version]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print version information
+        run: |
+          echo "Version: ${{ needs.determine-version.outputs.version }}"
+          echo "Is Release: ${{ needs.determine-version.outputs.is-release }}"
+          echo "Maven Version: ${{ needs.determine-version.outputs.maven-version }}"
+          echo "Git Tag: ${{ needs.determine-version.outputs.git-tag }}"
+          echo "Build Number: ${{ needs.determine-version.outputs.build-number }}"
+          echo "Semantic Version: ${{ needs.determine-version.outputs.semantic-version }}"
+          echo "Tag Created: ${{ needs.determine-version.outputs.tag-created }}"
+          echo "Tag Name: ${{ needs.determine-version.outputs.tag-name }}"
+          
+  # Build the Java application
+  build-spring-boot:
+    name: Build Spring Boot App
+    needs: [ determine-version ]
+    uses: ./.github/workflows/build-springboot-reusable.yml
+    secrets: inherit
+    with:
+      java-version: ${{ inputs.java-version }}
+      maven-args: ${{ inputs.maven-args }}
+      run-tests: ${{ inputs.run-tests }}
+      version-args: ${{ needs.determine-version.outputs.version }}
+      artifact-name: ${{ inputs.artifact-name }}
+
+  docker-build:
+    name: Build Docker Image
+    needs: [ determine-version, build-spring-boot ]
+    uses: ./.github/workflows/docker-spring-boot-reusable.yml
+    secrets: inherit
+    with:
+      artifact-name: ${{ inputs.artifact-name }}
+      dockerfile-path: ${{ inputs.dockerfile-path }}
+      image-name: ${{ inputs.artifact-name }}
+      image-tag: ${{ needs.determine-version.outputs.version }}
+
+  print-docker-info:
+    name: Print Docker Image Info
+    needs: [ docker-build ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Docker Image Information
+        run: |
+          echo "::group::Docker Image Details"
+          echo "Image URI: ${{ needs.docker-build.outputs.image-uri }}"
+          echo "Image Digest: ${{ needs.docker-build.outputs.image-digest }}"
+          echo "Push Status: ${{ needs.docker-build.outputs.push-status }}"
+          echo "::endgroup::"

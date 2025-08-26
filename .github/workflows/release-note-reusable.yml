@@ -1,0 +1,157 @@
+name: Generate Release Notes and Tags
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+        description: 'Version number for the release (format: x.y.z)'
+      release-title:
+        required: false
+        type: string
+        default: 'Release ${{ inputs.version }}'
+        description: 'Title for the release'
+      tag-prefix:
+        required: false
+        type: string
+        default: 'v'
+        description: 'Prefix for the version tag'
+      changelog-path:
+        required: false
+        type: string
+        default: 'CHANGELOG.md'
+        description: 'Path to the changelog file'
+      base-branch:
+        required: false
+        type: string
+        default: 'main'
+        description: 'Base branch to generate release notes from'
+
+jobs:
+  generate-release:
+    name: Generate Release Notes and Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Validate version format
+        run: |
+          if ! [[ ${{ inputs.version }} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format. Must be in format x.y.z"
+            exit 1
+          fi
+          echo "Version format is valid: ${{ inputs.version }}"
+
+      - name: Check if tag already exists
+        id: check-tag
+        run: |
+          TAG="${{ inputs.tag-prefix }}${{ inputs.version }}"
+          if git tag | grep -q "^$TAG$"; then
+            echo "Tag $TAG already exists"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $TAG doesn't exist yet"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate release notes
+        if: steps.check-tag.outputs.tag_exists == 'false'
+        id: generate-notes
+        run: |
+          # Find the last release tag
+          LAST_TAG=$(git tag --sort=-creatordate | grep "^${{ inputs.tag-prefix }}" | head -n 1 || echo "")
+          
+          if [ -z "$LAST_TAG" ]; then
+            # If no previous tag, use all commits
+            echo "No previous tag found, generating notes from all commits"
+            git log --pretty=format:"- %s (%h) by %an" > release-notes.md
+          else
+            echo "Generating notes since last tag: $LAST_TAG"
+            git log $LAST_TAG..HEAD --pretty=format:"- %s (%h) by %an" > release-notes.md
+          fi
+          
+          # Group commits by type if they follow conventional commits
+          echo "## What's New" > formatted-notes.md
+          grep -E "^- feat(\([^)]+\))?:" release-notes.md >> formatted-notes.md || echo "No new features in this release" >> formatted-notes.md
+          
+          echo -e "\n## Bug Fixes" >> formatted-notes.md
+          grep -E "^- fix(\([^)]+\))?:" release-notes.md >> formatted-notes.md || echo "No bug fixes in this release" >> formatted-notes.md
+          
+          echo -e "\n## Other Changes" >> formatted-notes.md
+          grep -vE "^- (feat|fix)(\([^)]+\))?:" release-notes.md >> formatted-notes.md || echo "No other changes in this release" >> formatted-notes.md
+    
+
+          # Add artifact information
+          echo -e "\n## Artifacts" >> formatted-notes.md;
+          echo "- Docker image: \`ghcr.io/${{ github.repository }}:${{ inputs.tag-prefix }}${{ inputs.version }}\`" >> formatted-notes.md;
+          echo "- JAR file: \`${{ github.event.repository.name }}-${{ inputs.version }}.jar\`" >> formatted-notes.md;
+      
+          # Add installation instructions
+          echo -e "\n## Installation" >> formatted-notes.md;
+          echo "### Docker" >> formatted-notes.md;
+          echo "\`\`\`bash" >> formatted-notes.md;
+          echo "docker pull ghcr.io/${{ github.repository }}:${{ inputs.tag-prefix }}${{ inputs.version }}" >> formatted-notes.md;
+          echo "docker run -p 8080:8080 ghcr.io/${{ github.repository }}:${{ inputs.tag-prefix }}${{ inputs.version }}" >> formatted-notes.md;
+          echo "\`\`\`" >> formatted-notes.md;
+          
+          cat formatted-notes.md > release-notes.md
+
+      - name: Update CHANGELOG.md
+        if: steps.check-tag.outputs.tag_exists == 'false'
+        run: |
+          # Check if changelog file exists
+          if [ -f "${{ inputs.changelog-path }}" ]; then
+            echo "Updating existing changelog"
+            # Create a new changelog with the release notes at the top
+            echo "# Changelog" > temp-changelog.md
+            echo -e "\n## ${{ inputs.tag-prefix }}${{ inputs.version }} - $(date +'%Y-%m-%d')" >> temp-changelog.md
+            cat release-notes.md >> temp-changelog.md
+            echo -e "\n" >> temp-changelog.md
+            # Append existing changelog without the header
+            tail -n +2 "${{ inputs.changelog-path }}" >> temp-changelog.md
+            mv temp-changelog.md "${{ inputs.changelog-path }}"
+          else
+            echo "Creating new changelog"
+            # Create a new changelog file
+            echo "# Changelog" > "${{ inputs.changelog-path }}"
+            echo -e "\n## ${{ inputs.tag-prefix }}${{ inputs.version }} - $(date +'%Y-%m-%d')" >> "${{ inputs.changelog-path }}"
+            cat release-notes.md >> "${{ inputs.changelog-path }}"
+          fi
+
+      - name: Commit and push changelog
+        if: steps.check-tag.outputs.tag_exists == 'false'
+        run: |
+          git add "${{ inputs.changelog-path }}"
+          git commit -m "Update CHANGELOG for release ${{ inputs.tag-prefix }}${{ inputs.version }}"
+          git push origin HEAD:${{ inputs.base-branch }}
+
+      - name: Create and push tag
+        if: steps.check-tag.outputs.tag_exists == 'false'
+        run: |
+          TAG="${{ inputs.tag-prefix }}${{ inputs.version }}"
+          git tag -a "$TAG" -m "Release ${{ inputs.version }}"
+          git push origin "$TAG"
+          echo "Created and pushed tag: $TAG"
+
+      - name: Create GitHub Release
+        if: steps.check-tag.outputs.tag_exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.tag-prefix }}${{ inputs.version }}
+          name: ${{ inputs.release-title }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false

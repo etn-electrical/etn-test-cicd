@@ -248,17 +248,17 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "is-release=$IS_RELEASE" >> $GITHUB_OUTPUT
 
-      - name: Create git tag for releases
-        if: steps.version.outputs.is-release == 'true'
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          if ! git tag -l | grep -q "^v${VERSION}$"; then
-            git tag -a "v${VERSION}" -m "Release version ${VERSION}"
-            git push origin "v${VERSION}"
-            echo "Created and pushed tag: v${VERSION}"
-          else
-            echo "Tag v${VERSION} already exists"
-          fi
+#      - name: Create git tag for releases
+#        if: steps.version.outputs.is-release == 'true'
+#        run: |
+#          VERSION=${{ steps.version.outputs.version }}
+#          git config user.name "github-actions[bot]"
+#          git config user.email "github-actions[bot]@users.noreply.github.com"
+#
+#          if ! git tag -l | grep -q "^v${VERSION}$"; then
+#            git tag -a "v${VERSION}" -m "Release version ${VERSION}"
+#            git push origin "v${VERSION}"
+#            echo "Created and pushed tag: v${VERSION}"
+#          else
+#            echo "Tag v${VERSION} already exists"
+#          fi

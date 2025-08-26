@@ -1,0 +1,33 @@
+name: 'Setup Java and Maven'
+description: 'Sets up Java 17 with Temurin distribution and Maven caching'
+inputs:
+  enable-maven-cache:
+    description: 'Enable Maven dependency caching'
+    required: false
+    default: 'true'
+  java-version:
+    description: 'Java version to setup'
+    required: false
+    default: '17'
+  distribution:
+    description: 'Java distribution'
+    required: false
+    default: 'temurin'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java-version }}
+        distribution: ${{ inputs.distribution }}
+        cache: ${{ inputs.enable-maven-cache == 'true' && 'maven' || '' }}
+
+    - name: Setup Maven cache (additional)
+      if: inputs.enable-maven-cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2

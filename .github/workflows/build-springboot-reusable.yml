@@ -1,0 +1,198 @@
+name: Spring Boot Build Workflow (Reusable)
+
+on:
+  workflow_call:
+    secrets:
+      PACKAGE_TOKEN:
+        required: true
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: 'Java version to use for the build'
+      maven-args:
+        required: false
+        type: string
+        default: 'clean package'
+        description: 'Maven arguments for build'
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to run tests'
+      artifact-name:
+        required: false
+        type: string
+        default: 'app-artifact'
+        description: 'Name for the uploaded artifact'
+      version-args:
+        required: false
+        type: string
+        default: ''
+        description: 'Version arguments to pass to Maven'
+    outputs:
+      artifact-name:
+        description: "Name of the uploaded artifact"
+        value: ${{ jobs.build.outputs.artifact-name }}
+      jar-path:
+        description: "Path to the built JAR file"
+        value: ${{ jobs.build.outputs.jar-path }}
+
+jobs:
+  build:
+    name: Build Spring Boot Application
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+      jar-path: ${{ steps.find-jar.outputs.jar-path }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Check PACKAGE_TOKEN availability
+        run: |
+          echo "=== PACKAGE_TOKEN Debug Information ==="
+          
+          # Check if secret exists (safe - no value exposure)
+          TOKEN_LENGTH=$(echo -n "${{ secrets.PACKAGE_TOKEN }}" | wc -c)
+          echo "PACKAGE_TOKEN length: $TOKEN_LENGTH characters"
+          
+          if [ "$TOKEN_LENGTH" -gt 0 ]; then
+            echo "✅ PACKAGE_TOKEN: Available ($TOKEN_LENGTH chars)"
+            echo "TOKEN_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "❌ PACKAGE_TOKEN: Not available or empty"
+            echo "TOKEN_EXISTS=false" >> $GITHUB_ENV
+          fi
+          
+          # Check repository context
+          echo "Repository: ${{ github.repository }}"
+          echo "Repository Owner: ${{ github.repository_owner }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Event: ${{ github.event_name }}"
+
+      - name: Test token usage
+        if: env.TOKEN_EXISTS == 'true'
+        run: |
+          echo "Testing PACKAGE_TOKEN usage..."
+          # Test if token works (replace with your actual usage)
+          curl -H "Authorization: token ${{ secrets.PACKAGE_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/user
+
+      - name: Provide troubleshooting info
+        if: env.TOKEN_EXISTS == 'false'
+        run: |
+          echo "🔍 TROUBLESHOOTING STEPS:"
+          echo "1. Check if PACKAGE_TOKEN is set in repository secrets"
+          echo "2. Verify you have admin access to this repository"
+          echo "3. Check if secret is set at organization level"
+          echo "4. Ensure secret name matches exactly (case-sensitive)"
+
+      - name: Setup Maven settings.xml
+        run: |
+          mkdir -p $HOME/.m2
+          cat > $HOME/.m2/settings.xml << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+          http://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <server>
+                <id>github</id>
+                <username>ericsunf22</username>
+                <password>${{ secrets.PACKAGE_TOKEN }}</password>
+              </server>
+            </servers>
+            <profiles>
+              <profile>
+              <id>github</id>
+              <repositories>
+                <repository>
+                  <id>central</id>
+                  <url>https://repo1.maven.org/maven2</url>
+                </repository>
+                <repository>
+                  <id>github</id>
+                  <url>https://maven.pkg.github.com/etn-electrical/etn-test-cicd</url>
+                  <snapshots>
+                    <enabled>true</enabled>
+                  </snapshots>
+                </repository>
+              </repositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>github</activeProfile>
+            </activeProfiles>
+          </settings>
+          EOF
+
+
+      - name: Update version in pom.xml
+        run: |
+          mvn versions:set -DnewVersion=${{ inputs.version-args }} -DgenerateBackupPoms=false
+
+      - name: Build with Maven (Skip Tests)
+        if: ${{ !inputs.run-tests }}
+        run: mvn -B ${{ inputs.maven-args }} -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build with Maven (With Tests)
+        if: ${{ inputs.run-tests }}
+        run: mvn -B ${{ inputs.maven-args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Test Results
+        if: ${{ inputs.run-tests }}
+        # Replace with an allowed action for test reporting
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/target/surefire-reports/*.xml'
+          retention-days: 7
+
+      - name: Find JAR file
+        id: find-jar
+        run: |
+          JAR_PATH=$(find target -name "*.jar" -not -name "*sources.jar" -not -name "*javadoc.jar" | head -n 1)
+          echo "jar-path=${JAR_PATH}" >> $GITHUB_OUTPUT
+          echo "Found JAR: ${JAR_PATH}"
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ steps.find-jar.outputs.jar-path }}
+          retention-days: 7
+
+      - name: Generate build info
+        run: |
+          echo "Build completed at: $(date)" > build-info.txt
+          echo "JAR path: ${{ steps.find-jar.outputs.jar-path }}" >> build-info.txt
+          echo "Java version: ${{ inputs.java-version }}" >> build-info.txt
+
+      - name: Upload build info
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}-info
+          path: build-info.txt
+          retention-days: 7

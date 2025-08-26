@@ -58,13 +58,13 @@ jobs:
           DEPLOY="false"
           
           # Main branch -> Production
-          if [[ "$BRANCH" == "main" ]]; then
+          if [[ "$BRANCH" == "main" || "$BRANCH" == "master"  ]]; then
             ENVIRONMENT="production"
             IS_PRODUCTION="true"
             DEPLOY="true"
           
           # Dev branch -> Staging
-          elif [[ "$BRANCH" == "dev" ]]; then
+          elif [[ "$BRANCH" == "develop" ]]; then
             ENVIRONMENT="staging"
             IS_STAGING="true"
             DEPLOY="true"
