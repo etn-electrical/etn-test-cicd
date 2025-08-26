@@ -74,7 +74,12 @@ jobs:
             npm install -g pnpm
             pnpm install --frozen-lockfile
           else
-            npm ci
+            # Check if package-lock.json exists
+            if [ -f "package-lock.json" ]; then
+              npm ci
+            else
+              npm install
+            fi
           fi
 
       - name: Run tests
