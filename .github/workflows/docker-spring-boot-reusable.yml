@@ -162,11 +162,23 @@ jobs:
       - name: Image digest
         run: echo "Pushed image with digest ${{ steps.build-push.outputs.digest }}"
 
-      - name: Summary
+#      - name: Summary
+#        run: |
+#          echo "## GitHub Runner Image Build Summary" >> $GITHUB_STEP_SUMMARY
+#          echo "* Image Version: ${{ inputs.image-tag  }}" >> $GITHUB_STEP_SUMMARY
+#          echo "* Image: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate build summary
         run: |
-          echo "## GitHub Runner Image Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "* Image Version: ${{ inputs.image-tag  }}" >> $GITHUB_STEP_SUMMARY
-          echo "* Image: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚢 Docker Image Published ✅" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tag** | \`${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Full URI** | \`${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **SHA Tag** | \`sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Built from** | ${{ github.repository }} @ ${{ github.ref }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build time** | $(date) |" >> $GITHUB_STEP_SUMMARY
 
       - name: Set outputs
         id: set-outputs
