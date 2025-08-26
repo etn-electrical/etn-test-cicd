@@ -101,8 +101,8 @@ jobs:
           echo "SOURCE_IMAGE=${SOURCE_IMAGE}" >> $GITHUB_ENV
           echo "HARBOR_REGISTRY=${HARBOR_REGISTRY}" >> $GITHUB_ENV
           echo "VPN_TRUSTED_CERT=${VPN_TRUSTED_CERT}" >> $GITHUB_ENV
-          echo "VPN_HOST=101.42.118.139" >> $GITHUB_ENV
-          echo "VPN_PORT=28880" >> $GITHUB_ENV
+          echo "VPN_HOST=${VPN_HOST}" >> $GITHUB_ENV
+          echo "VPN_PORT=${VPN_PORT}" >> $GITHUB_ENV
           echo "VPN_USERNAME=EricSun" >> $GITHUB_ENV
           echo "VPN_PASSWORD=K!cs*ZJhH0^oria^" >> $GITHUB_ENV
           echo "VPN_ASKTYPE=K!cs*ZJhH0^oria^" >> $GITHUB_ENV
