@@ -1,0 +1,387 @@
+name: Transfer Docker Image via VPN to Harbor
+
+on:
+  push:
+    branches: [ develop ]
+  workflow_dispatch:
+    inputs:
+      source_image:
+        description: 'Source Docker image from GHCR (e.g., ghcr.io/owner/image:tag)'
+        required: true
+        type: string
+        default: 'ghcr.io/etn-electrical/szcpc_suzhou_smart_lab_transfer/smart-lab-transfer:2.4.7-dev.260'
+      harbor_registry:
+        description: 'Harbor registry URL (e.g., harbor.company.com)'
+        required: false
+        type: string
+        default: 'harbor-eaton1.eniot.io'
+      harbor_project:
+        description: 'Harbor project name'
+        required: false
+        type: string
+        default: 'etn-aps'
+      target_image_name:
+        description: 'Target image name in Harbor'
+        required: false
+        type: string
+        default: 'lab-transfer'
+      target_image_tag:
+        description: 'Target image tag'
+        required: false
+        default: '2.4.1'
+        type: string
+      vpn_host:
+        description: 'VPN Server Host'
+        required: false
+        type: string
+        default: '101.42.118.139'
+      vpn_port:
+        description: 'VPN Server Port'
+        required: false
+        default: '28880'
+        type: string
+      vpn_username:
+        description: 'VPN Username'
+        required: false
+        type: string
+        default: 'EricSun'
+      trusted_cert:
+        description: 'VPN Trusted Certificate Fingerprint (optional)'
+        required: false
+        type: string
+        default: '8faa52d66a5bd79d3f2802e932a24be19f7d32399a090c6db591423ce801bb37'
+
+env:
+  SOURCE_IMAGE: ${{ inputs.source_image }}
+  HARBOR_REGISTRY: ${{ inputs.harbor_registry }}
+  HARBOR_PROJECT: ${{ inputs.harbor_project }}
+  TARGET_IMAGE_NAME: ${{ inputs.target_image_name }}
+  TARGET_IMAGE_TAG: ${{ inputs.target_image_tag }}
+  VPN_HOST: ${{ inputs.vpn_host }}
+  VPN_PORT: ${{ inputs.vpn_port }}
+  VPN_USERNAME: ${{ inputs.vpn_username }}
+  VPN_PASSWORD: ${{ secrets.VPN_PASSWORD }}
+  VPN_TRUSTED_CERT: ${{ inputs.trusted_cert }}
+  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+  GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+
+jobs:
+  transfer-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Docker image from GHCR
+        run: |
+          echo "Pulling Docker image: $SOURCE_IMAGE"
+          if [[ -z "$SOURCE_IMAGE" ]]; then
+            echo "Error: SOURCE_IMAGE is not set"
+            exit 1
+          fi
+          if [[ -z "$HARBOR_REGISTRY" ]]; then
+            HARBOR_REGISTRY='harbor-eaton1.eniot.io'
+          fi
+          if [[ -z "$VPN_TRUSTED_CERT" ]]; then
+            VPN_TRUSTED_CERT='8faa52d66a5bd79d3f2802e932a24be19f7d32399a090c6db591423ce801bb37'
+          fi
+          docker pull $SOURCE_IMAGE
+          
+          # Verify image was pulled successfully
+          docker images | grep -E "$(echo $SOURCE_IMAGE | cut -d'/' -f2- | cut -d':' -f1)" || {
+            echo "Failed to pull image from GHCR"
+            exit 1
+          }
+          echo "SOURCE_IMAGE=${SOURCE_IMAGE}" >> $GITHUB_ENV
+          echo "HARBOR_REGISTRY=${HARBOR_REGISTRY}" >> $GITHUB_ENV
+          echo "VPN_TRUSTED_CERT=${VPN_TRUSTED_CERT}" >> $GITHUB_ENV
+          echo "VPN_HOST=101.42.118.139" >> $GITHUB_ENV
+          echo "VPN_PORT=28880" >> $GITHUB_ENV
+          echo "VPN_USERNAME=EricSun" >> $GITHUB_ENV
+          echo "VPN_PASSWORD=K!cs*ZJhH0^oria^" >> $GITHUB_ENV
+          echo "VPN_ASKTYPE=K!cs*ZJhH0^oria^" >> $GITHUB_ENV
+          echo "Successfully pulled image: $SOURCE_IMAGE"
+          docker images
+
+      - name: Install OpenFortiVPN
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openfortivpn curl iputils-ping
+
+      - name: Verify OpenFortiVPN installation
+        run: |
+          openfortivpn --version
+
+      - name: Create VPN config file
+        run: |
+          sudo mkdir -p /etc/openfortivpn
+          echo "VPN_ASKTYPE: $VPN_ASKTYPE"
+          # Create the main config file
+          sudo tee /etc/openfortivpn/config > /dev/null <<EOF
+          host = $VPN_HOST
+          port = $VPN_PORT
+          username = $VPN_USERNAME
+          password = $VPN_ASKTYPE
+          set-dns = 1
+          EOF
+          sudo cat /etc/openfortivpn/config
+          # Add trusted certificate if provided
+          if [ -n "$VPN_TRUSTED_CERT" ]; then
+            echo "trusted-cert = $VPN_TRUSTED_CERT" | sudo tee -a /etc/openfortivpn/config
+          fi
+          
+          # Set secure permissions
+          sudo chmod 600 /etc/openfortivpn/config
+          sudo chown root:root /etc/openfortivpn/config
+
+      - name: Start VPN connection
+        run: |
+          echo "Starting OpenFortiVPN connection..."
+
+          # Start VPN connection in background with retry logic
+          retry_count=0
+          max_retries=3
+          vpn_connected=false
+          
+          while [ $retry_count -lt $max_retries ] && [ "$vpn_connected" = "false" ]; do
+              echo "Starting OpenFortiVPN connection (attempt $(($retry_count + 1))/$max_retries)..."
+            
+              # Kill any existing VPN processes
+              sudo pkill -f openfortivpn || true
+          
+              # Start VPN connection in background
+              sudo openfortivpn --config=/etc/openfortivpn/config --trusted-cert $VPN_TRUSTED_CERT &
+              VPN_PID=$!
+              echo $VPN_PID > /tmp/vpn.pid
+          
+              # Wait for connection to establish
+              echo "Waiting for VPN connection to establish..."
+              sleep 15
+          
+              # Check if VPN interface is up
+              for i in {1..30}; do
+                  if ip route | grep -q "ppp0"; then
+                    echo "VPN connection established successfully!"
+                    vpn_connected=true
+                    break
+                  fi
+                  # Check for termination error in logs
+                  if sudo grep -q "pppd: The link was terminated by the modem hanging up" /var/log/syslog; then
+                    echo "VPN connection was terminated by modem hanging up, will retry..."
+                    break
+                  fi
+                  echo "Waiting for VPN interface... ($i/30)"
+                  sleep 2
+              done
+              
+              if [ "$vpn_connected" = "true" ]; then
+                break
+              else
+                retry_count=$((retry_count + 1))
+                if [ $retry_count -lt $max_retries ]; then
+                  echo "VPN connection attempt failed. Retrying in 10 seconds..."
+                  sleep 10
+                fi
+              fi
+          done
+            
+          if [ "$vpn_connected" = "false" ]; then
+            echo "Failed to establish VPN connection after $max_retries attempts"
+            exit 1
+          fi
+
+          # Configure DNS system-wide after connection is established
+          echo "#### Start resolv.conf::::"
+          sudo cat /etc/resolv.conf || { echo "cannot find /etc/resolv.conf"; exit 0; }
+          echo "#### End resolv.conf::::"
+          
+          if ip route | grep -q "ppp0"; then
+            echo "VPN interface is up, configuring DNS..."
+            
+            # Backup current resolv.conf
+            sudo cp /etc/resolv.conf /etc/resolv.conf.backup 2>/dev/null || true
+
+            # Create new resolv.conf with corporate DNS servers
+          sudo tee /etc/resolv.conf > /dev/null << EOF
+            nameserver 10.65.120.101
+            nameserver 10.65.122.45
+            search eniot.io
+          EOF
+          
+          # Test DNS resolution
+          echo "Testing DNS resolution:"
+          nslookup $HARBOR_REGISTRY || true
+
+          # Configure Docker DNS 
+          echo "Configure Docker DNS resolution:"
+          nslookup dns0001.eniot.io || {
+            echo "DNS resolution failed, cannot proceed with Docker DNS configuration"
+            exit 0
+          }
+          sudo mkdir -p /etc/docker
+          sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+          {
+            "dns": ["10.65.120.101", "10.65.122.45","0.0.0.0"],
+            "dns-search": ["eniot.io"],
+            "max-concurrent-uploads": 10,
+            "max-concurrent-downloads": 10,
+            "debug": true,
+            "insecure-registries": ["harbor-eaton1.eniot.io"], 
+            "log-opts": {
+                "max-size": "10m",
+                "max-file": "2"
+            }
+          }
+          EOF
+
+            # Restart Docker to apply new DNS settings
+            echo "Restarting Docker service to apply DNS changes..."
+            sudo systemctl daemon-reload
+            sudo systemctl restart docker
+
+            echo "VPN connection established and DNS configured successfully"
+            echo "VPN_CONNECTED=true" >> $GITHUB_ENV
+          else
+            echo "Failed to establish VPN connection"
+            exit 1
+          fi
+      
+
+      - name: Test VPN connectivity
+        run: |
+          echo "Testing VPN connectivity..."
+          
+          # Show current external IP before VPN
+          echo "External IP via VPN:"
+          curl -s --max-time 10 https://ipinfo.io/ip || echo "Failed to get external IP"
+          
+          # Test connectivity to Harbor registry
+          echo "Testing connectivity to Harbor registry: $HARBOR_REGISTRY"
+          
+          # Try to resolve Harbor registry
+          nslookup $HARBOR_REGISTRY || echo "DNS resolution failed for $HARBOR_REGISTRY"
+          
+          # Test HTTPS connectivity to Harbor
+          curl -s --max-time 30 -I https://$HARBOR_REGISTRY/api/v2.0/systeminfo || {
+            echo "Warning: Could not reach Harbor API endpoint"
+            echo "Attempting basic connectivity test..."
+            curl -s --max-time 10 -I https://$HARBOR_REGISTRY/ || echo "Basic HTTPS test failed"
+          }
+          echo "VPN connectivity tests completed"
+
+      - name: Tag Docker image for Harbor
+        run: |
+          # Create the target image tag
+          TARGET_FULL_NAME="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${TARGET_IMAGE_NAME}:${TARGET_IMAGE_TAG}"
+          if [[ -z "${HARBOR_PROJECT}" || -z "${TARGET_IMAGE_NAME}" ||  -z "${TARGET_IMAGE_TAG}" ]]
+          then
+            TARGET_FULL_NAME="${SOURCE_IMAGE//ghcr.io\/ericsunf22/${HARBOR_REGISTRY}}"
+          fi
+          echo "Tagging image for Harbor:"
+          echo "Source: $SOURCE_IMAGE"
+          echo "Target: $TARGET_FULL_NAME"
+          # Tag the image
+          docker tag $SOURCE_IMAGE $TARGET_FULL_NAME
+          # Verify tag was created
+          docker images | grep "$HARBOR_REGISTRY" || {
+            echo "Failed to tag image for Harbor"
+            exit 1
+          }
+
+          echo "Successfully tagged image: $TARGET_FULL_NAME"
+          echo "TARGET_FULL_NAME=$TARGET_FULL_NAME" >> $GITHUB_ENV
+
+      - name: Login to Harbor Registry
+        run: |
+          echo "Logging into Harbor registry: $HARBOR_REGISTRY"
+          sudo systemctl restart docker || true
+          # Login to Harbor
+          echo "$HARBOR_PASSWORD" | docker login $HARBOR_REGISTRY -u "$HARBOR_USERNAME" --password-stdin
+          echo "Successfully logged into Harbor registry"
+
+      - name: Push Docker image to Harbor
+        run: |
+          echo "Pushing Docker image to Harbor: $TARGET_FULL_NAME"
+          # Push the image
+          docker push $TARGET_FULL_NAME
+          echo "Successfully pushed image to Harbor: $TARGET_FULL_NAME"
+          
+      - name: Verify image in Harbor
+        run: |
+          echo "Verifying image was pushed successfully..."
+          
+          # Try to pull the image back to verify
+          docker rmi $TARGET_FULL_NAME || echo "Local image cleanup failed"
+          
+          echo "Attempting to pull image back from Harbor to verify..."
+          docker pull $TARGET_FULL_NAME && {
+            echo "✅ Successfully verified image in Harbor!"
+            docker images | grep "$HARBOR_REGISTRY"
+          } || {
+            echo "❌ Failed to verify image in Harbor"
+            exit 1
+          }
+
+      - name: Cleanup local images
+        if: always()
+        run: |
+          echo "Cleaning up local Docker images..."
+          
+          # Remove the source image
+          docker rmi $SOURCE_IMAGE || echo "Failed to remove source image"
+          
+          # Remove the tagged image
+          if [ -n "$TARGET_FULL_NAME" ]; then
+            docker rmi $TARGET_FULL_NAME || echo "Failed to remove target image"
+          fi
+          
+          # Show remaining images
+          echo "Remaining Docker images:"
+          docker images
+
+      - name: Cleanup VPN connection
+        if: always()
+        run: |
+          echo "Cleaning up VPN connection..."
+          
+          # Kill VPN processes
+          if [ -f /tmp/vpn.pid ]; then
+            VPN_PID=$(cat /tmp/vpn.pid)
+            sudo kill $VPN_PID || echo "Failed to kill VPN process $VPN_PID"
+            rm -f /tmp/vpn.pid
+          fi
+          
+          sudo pkill -f openfortivpn || echo "No openfortivpn processes to kill"
+          
+          # Remove config file
+          sudo rm -f /etc/openfortivpn/config
+          
+          # Remove any ppp interfaces
+          sudo ip link delete ppp0 2>/dev/null || echo "No ppp0 interface to remove"
+          
+          echo "VPN cleanup completed"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "=== Workflow Summary ==="
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Successfully transferred Docker image:"
+            echo "   Source: $SOURCE_IMAGE"
+            echo "   Target: $TARGET_FULL_NAME"
+            echo "   Harbor Registry: $HARBOR_REGISTRY"
+          else
+            echo "❌ Workflow failed. Check the logs above for details."
+          fi
