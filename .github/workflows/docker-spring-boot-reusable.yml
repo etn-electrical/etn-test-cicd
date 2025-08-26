@@ -145,12 +145,28 @@ jobs:
           file: ${{ inputs.dockerfile-path }}
           push: ${{ inputs.push-image }}
           tags: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+          labels: |
+            com.etn.cpc.iot.image.title=Application for ${{ inputs.image-name }}
+            com.etn.cpc.iot.image.description=CPC Iot Application: ${{ inputs.image-name }}
+            com.etn.cpc.iot.image.vendor=${{ github.repository_owner }}
+            com.etn.cpc.iot.image.version=${{ inputs.image-tag }}
+            com.etn.cpc.iot.image.created={{date 'yyyy-MM-dd'}}
+            com.etn.cpc.iot.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             JAR_FILE=./app/*.jar
             JAVA_VERSION=${{ inputs.java-version }}
             SPRING_PROFILES_ACTIVE=${{ inputs.spring-profiles }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: echo "Pushed image with digest ${{ steps.build-push.outputs.digest }}"
+
+      - name: Summary
+        run: |
+          echo "## GitHub Runner Image Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "* Image Version: ${{ inputs.image-tag  }}" >> $GITHUB_STEP_SUMMARY
+          echo "* Image: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Set outputs
         id: set-outputs
@@ -169,8 +185,9 @@ jobs:
 
       - name: Image details
         run: |
+          IMAGE_URI="${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
           echo "::group::Docker Image Information"
           echo "Image URI: ${{ steps.set-outputs.outputs.image-uri }}"
           echo "Image digest: ${{ steps.build-push.outputs.digest }}"
-          echo "Image URL: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}"
+          echo "Image URL: ${IMAGE_URI}"
           echo "::endgroup::"
