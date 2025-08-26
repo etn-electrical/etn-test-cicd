@@ -101,6 +101,8 @@ jobs:
         run: ${{ inputs.pre_build_command }}
 
       - name: Build project
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
         working-directory: ${{ inputs.working_directory }}
         run: |
           if [ "${{ inputs.package_manager }}" == "yarn" ]; then
