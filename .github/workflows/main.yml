@@ -30,17 +30,6 @@ on:
         required: false
         default: '2.4.1'
         type: string
-      vpn_host:
-        description: 'VPN Server Host'
-        required: false
-        type: string
-        default: '101.42.118.139'
-      vpn_port:
-        description: 'VPN Server Port'
-        required: false
-        default: '28880'
-        type: string
-
 env:
   SOURCE_IMAGE: ${{ inputs.source_image }}
   HARBOR_REGISTRY: ${{ inputs.harbor_registry }}
