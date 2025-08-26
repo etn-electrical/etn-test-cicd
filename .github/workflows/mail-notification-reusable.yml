@@ -43,7 +43,7 @@ jobs:
         run: |
           echo "SMTP_SERVER: ${{ secrets.SMTP_SERVER }}"
           echo "SMTP_PORT: ${{ secrets.SMTP_PORT || 25 }}"
-          echo "EMAIL_RECIPIENTS: ${{ vars.EMAIL_RECIPIENTS  || ericsun@eaton.com }}"
+          echo "EMAIL_RECIPIENTS: ${{ vars.EMAIL_RECIPIENTS  || 'ericsun@eaton.com' }}"
           echo "Status: ${{ inputs.deploy_status }}"
           echo "Remote Host: ${{ inputs.remote-host }}"
           echo "Environment Name: ${{ inputs.env-name }}"
@@ -74,7 +74,7 @@ jobs:
             Environment: ${{ inputs.env-name }}
             Version: ${{ inputs.version-number }} 
             Deployed to: ${{ inputs.remote-host }}
-          to: ${{ vars.EMAIL_RECIPIENTS || ericsun@eaton.com }}
+          to: ${{ vars.EMAIL_RECIPIENTS || 'ericsun@eaton.com' }}
           from: Smart Lab CI/CD <noreply@eaton.com>
           secure: false
           ignore_cert: true
