@@ -50,8 +50,27 @@ on:
       version:
         description: 'Determined version for the build'
         value: ${{ jobs.build.outputs.version }}
+      environment-name:
+        description: "Determined environment based on branch"
+        value: ${{ jobs.determine-environment.outputs.environment }}
 
 jobs:
+  print-github-info:
+    name: Print GitHub Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub event info
+        run: |
+          echo "GitHub Event Name: ${{ github.event_name }}"
+          echo "GitHub Repository: ${{ github.repository }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub Ref Name: ${{ github.ref_name }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "GitHub Actor: ${{ github.actor }}"
+          echo "GitHub Workflow: ${{ github.workflow }}"
+          echo "GitHub Workspace: ${{ github.workspace }}"
+          echo "GitHub Event Path: ${{ github.event_path }}"
+
   detect-version:
     name: Detect Semantic Version
     runs-on: ubuntu-latest
@@ -120,6 +139,12 @@ jobs:
           
           echo "Determined version: ${VERSION}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+  determine-environment:
+    name: Determine Environment
+    uses: ./.github/workflows/environment.yml
+    with:
+      branch_name: ${{ github.ref_name }}
 
   build:
     name: Build Node.js Project
