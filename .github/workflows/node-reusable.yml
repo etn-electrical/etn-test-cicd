@@ -90,6 +90,9 @@ on:
       is-release:
         description: "Whether this is a release build"
         value: ${{ jobs.detect-version.outputs.is-release }}
+      image_uri:
+        description: 'URI of the built Docker image'
+        value: ${{ jobs.build-docker.outputs.image_uri }}
 
 jobs:
   print-github-info:
@@ -111,19 +114,19 @@ jobs:
   detect-version:
     name: Detect Semantic Version
     uses: ./.github/workflows/version-reusable.yml
+
   determine-environment:
     name: Determine Environment
     uses: ./.github/workflows/environment.yml
     with:
       branch_name: ${{ github.ref_name }}
+
   build:
     name: Build Node.js Project
     needs: detect-version
     runs-on: ubuntu-latest
     outputs:
       build_result: ${{ steps.build_output.outputs.status }}
-      version: ${{ needs.detect-version.outputs.version }}
-      image_uri: ${{ needs.build-docker.outputs.image_uri }}
 
     steps:
       - name: Checkout repository
@@ -223,6 +226,7 @@ jobs:
           name: ${{ inputs.artifact_name }}
           path: ${{ inputs.working_directory }}/${{ inputs.artifacts_path }}
           retention-days: 7
+
   build-docker:
     name: Build Docker Image
     needs: [ build ]
