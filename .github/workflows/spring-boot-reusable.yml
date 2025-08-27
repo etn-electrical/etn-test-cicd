@@ -26,6 +26,11 @@ on:
         type: boolean
         default: true
         description: 'Whether to run tests'
+      image-project:
+        description: 'Project/namespace for the Docker image'
+        required: false
+        type: string
+        default: ${{ github.repository_owner }}
       dockerfile-path:
         required: false
         type: string
@@ -120,6 +125,7 @@ jobs:
     with:
       artifact-name: ${{ inputs.artifact-name }}
       dockerfile-path: ${{ inputs.dockerfile-path }}
+      image-project: ${{ inputs.image-project }}
       image-name: ${{ inputs.artifact-name }}
       image-tag: ${{ needs.detect-version.outputs.version }}
 

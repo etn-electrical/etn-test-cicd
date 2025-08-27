@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: 'ghcr.io'
+      image_project:
+        description: 'Project/namespace for the Docker image'
+        required: false
+        type: string
+        default: ${{ github.repository_owner }}
       image_name:
         description: 'Name of the Docker image'
         required: true
@@ -22,11 +27,6 @@ on:
         required: false
         type: string
         default: 'Dockerfile'
-#      build_context:
-#        description: 'Docker build context'
-#        required: false
-#        type: string
-#        default: '.'
       artifact_name:
         description: 'Name of the artifact to download'
         required: false
@@ -97,7 +97,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_name }}
+          images: ${{ inputs.registry }}/${{ inputs.image_project }}/${{ inputs.image_name }}
           tags: |
             type=raw,value=${{ inputs.image_tag }}
             type=sha,format=short
@@ -133,30 +133,16 @@ jobs:
       - name: Output image URI
         id: image_info
         run: |
-          echo "uri=${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+          echo "uri=${{ inputs.registry }}/${{ inputs.image_project }}/${{ inputs.image_name }}:${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
           
       # In the docker job, add these steps after the "Output image URI" step
-
       - name: Generate build summary
         if: ${{ inputs.push_image }}
         run: |
           echo "## 🚢 Docker Image Published ✅" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image** | \`${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Tag** | \`${{ inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Full URI** | \`${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_name }}:${{ inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ inputs.registry }}/${{ inputs.image_project }}/${{ inputs.image_name }}:${{ inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SHA Tag** | \`sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Built from** | ${{ github.repository }} @ ${{ github.ref }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Build time** | $(date) |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Generate summary for skipped push
-        if: ${{ !inputs.push_image }}
-        run: |
-          echo "## 🚢 Docker Image Built (Not Pushed) ✅" >> $GITHUB_STEP_SUMMARY
-          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image** | \`${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Tag** | \`${{ inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Built from** | ${{ github.repository }} @ ${{ github.ref }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Build time** | $(date) |" >> $GITHUB_STEP_SUMMARY
