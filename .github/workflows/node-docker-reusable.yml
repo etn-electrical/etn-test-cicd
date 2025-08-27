@@ -126,7 +126,7 @@ jobs:
       - name: Output image URI
         id: image_info
         run: |
-          echo "uri=${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_project }}/${{ inputs.image_name }}" >> $GITHUB_OUTPUT
+          echo "uri=${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_project }}/${{ inputs.image_name }}:${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
           
       # In the docker job, add these steps after the "Output image URI" step
       - name: Generate build summary
@@ -135,7 +135,7 @@ jobs:
           echo "## 🚢 Docker Image Published ✅" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image** | \`${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_project }}/${{ inputs.image_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_project }}/${{ inputs.image_name }}:${{ inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SHA Tag** | \`sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Built from** | ${{ github.repository }} @ ${{ github.ref }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Build time** | $(date) |" >> $GITHUB_STEP_SUMMARY
