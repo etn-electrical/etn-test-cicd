@@ -46,7 +46,7 @@ on:
         value: ${{ jobs.determine-environment.outputs.environment }}
       version-number:
         description: "Version number determined for the build"
-        value: ${{ jobs.determine-version.outputs.version }}
+        value: ${{ jobs.detect-version.outputs.version }}
 
 permissions:
   contents: write
@@ -92,51 +92,33 @@ jobs:
           echo "Testing: ${{ needs.determine-environment.outputs.is_testing }}"
           echo "Branch Name: ${{ needs.determine-environment.outputs.branch_name }}"
           
-  determine-version:
-    name: Determine Version
-    uses: ./.github/workflows/version.yml
-    with:
-      java-version: ${{ inputs.java-version }}
+  detect-version:
+    name: Detect Semantic Version
+    uses: ./.github/workflows/version-reusable.yml
 
-  print-version-info:
-    name: Print Version Info
-    needs: [determine-version]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Print version information
-        run: |
-          echo "Version: ${{ needs.determine-version.outputs.version }}"
-          echo "Is Release: ${{ needs.determine-version.outputs.is-release }}"
-          echo "Maven Version: ${{ needs.determine-version.outputs.maven-version }}"
-          echo "Git Tag: ${{ needs.determine-version.outputs.git-tag }}"
-          echo "Build Number: ${{ needs.determine-version.outputs.build-number }}"
-          echo "Semantic Version: ${{ needs.determine-version.outputs.semantic-version }}"
-          echo "Tag Created: ${{ needs.determine-version.outputs.tag-created }}"
-          echo "Tag Name: ${{ needs.determine-version.outputs.tag-name }}"
-          
   # Build the Java application
   build-spring-boot:
     name: Build Spring Boot App
-    needs: [ determine-version ]
+    needs: [ detect-version ]
     uses: ./.github/workflows/build-springboot-reusable.yml
     secrets: inherit
     with:
       java-version: ${{ inputs.java-version }}
       maven-args: ${{ inputs.maven-args }}
       run-tests: ${{ inputs.run-tests }}
-      version-args: ${{ needs.determine-version.outputs.version }}
+      version-args: ${{ needs.detect-version.outputs.version }}
       artifact-name: ${{ inputs.artifact-name }}
 
   docker-build:
     name: Build Docker Image
-    needs: [ determine-version, build-spring-boot ]
+    needs: [ detect-version, build-spring-boot ]
     uses: ./.github/workflows/docker-spring-boot-reusable.yml
     secrets: inherit
     with:
       artifact-name: ${{ inputs.artifact-name }}
       dockerfile-path: ${{ inputs.dockerfile-path }}
       image-name: ${{ inputs.artifact-name }}
-      image-tag: ${{ needs.determine-version.outputs.version }}
+      image-tag: ${{ needs.detect-version.outputs.version }}
 
   print-docker-info:
     name: Print Docker Image Info
