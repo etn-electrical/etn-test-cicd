@@ -68,12 +68,13 @@ jobs:
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 25 }}
-          subject: "Deployment [${{ inputs.deploy_status }}] ${{ inputs.project-name }} - ${{ inputs.env-name }} Deployment Status"
+          subject: "Deployment Status: ${{ inputs.project-name }} - ${{ inputs.env-name }} [${{ inputs.deploy_status }}]  "
           body: |
             Deployment completed for Smart Lab application.
             Environment: ${{ inputs.env-name }}
             Version: ${{ inputs.version-number }} 
             Deployed to: ${{ inputs.remote-host }}
+            Result: ${{ inputs.deploy_status }}
           to: ${{ vars.EMAIL_RECIPIENTS || 'ericsun@eaton.com' }}
           from: ${{ inputs.project-name }} <noreply@eaton.com>
           secure: false
