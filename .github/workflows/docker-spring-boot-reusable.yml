@@ -9,10 +9,10 @@ on:
         default: 'app-artifact'
         description: 'Name of the uploaded artifact to use'
       image-project:
-        description: 'Project/namespace for the Docker image'
         required: false
         type: string
         default: ${{ github.repository_owner }}
+        description: 'Project or user name for the image repository'
       image-name:
         required: true
         type: string
@@ -149,7 +149,7 @@ jobs:
           context: .
           file: ${{ inputs.dockerfile-path }}
           push: ${{ inputs.push-image }}
-          tags: ${{ inputs.registry }}/${{ inputs.image-project }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+          tags: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-project}}/${{ inputs.image-name }}:${{ inputs.image-tag }}
           labels: |
             com.etn.cpc.iot.image.title=Application for ${{ inputs.image-name }}
             com.etn.cpc.iot.image.description=CPC Iot Application: ${{ inputs.image-name }}
@@ -167,18 +167,12 @@ jobs:
       - name: Image digest
         run: echo "Pushed image with digest ${{ steps.build-push.outputs.digest }}"
 
-#      - name: Summary
-#        run: |
-#          echo "## GitHub Runner Image Build Summary" >> $GITHUB_STEP_SUMMARY
-#          echo "* Image Version: ${{ inputs.image-tag  }}" >> $GITHUB_STEP_SUMMARY
-#          echo "* Image: ${{ inputs.registry }}/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
-
       - name: Generate build summary
         run: |
           echo "## 🚢 Docker Image Published ✅" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Full URI** | \`${{ inputs.registry }}/${{ inputs.image-project }}/${{ inputs.image-name }}:${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Full URI** | \`${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-project}}/${{ inputs.image-name }}:${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SHA Tag** | \`sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Built from** | ${{ github.repository }} @ ${{ github.ref }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Build time** | $(date) |" >> $GITHUB_STEP_SUMMARY
@@ -186,7 +180,7 @@ jobs:
       - name: Set outputs
         id: set-outputs
         run: |
-          IMAGE_URI="${{ inputs.registry }}/${{ inputs.image-project }}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
+          IMAGE_URI="${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-project}}/${{ inputs.image-name }}:${{ inputs.image-tag }}"
           echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           
           if [ "${{ inputs.push-image }}" = "true" ]; then

@@ -9,7 +9,7 @@ on:
         type: string
         default: 'ghcr.io'
       image_project:
-        description: 'Project/namespace for the Docker image'
+        description: 'Project or namespace for the Docker image'
         required: false
         type: string
         default: ${{ github.repository_owner }}
@@ -47,13 +47,6 @@ on:
         required: false
         type: boolean
         default: true
-    secrets:
-      registry_username:
-        description: 'Username for container registry'
-        required: false
-      registry_password:
-        description: 'Password/token for container registry'
-        required: false
     outputs:
       image_uri:
         description: 'URI of the built Docker image'
@@ -97,7 +90,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ inputs.registry }}/${{ inputs.image_project }}/${{ inputs.image_name }}
+          images: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_project }}/${{ inputs.image_name }}
           tags: |
             type=raw,value=${{ inputs.image_tag }}
             type=sha,format=short
@@ -133,7 +126,7 @@ jobs:
       - name: Output image URI
         id: image_info
         run: |
-          echo "uri=${{ inputs.registry }}/${{ inputs.image_project }}/${{ inputs.image_name }}:${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+          echo "uri=${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_project }}/${{ inputs.image_name }}" >> $GITHUB_OUTPUT
           
       # In the docker job, add these steps after the "Output image URI" step
       - name: Generate build summary
@@ -142,7 +135,7 @@ jobs:
           echo "## 🚢 Docker Image Published ✅" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image** | \`${{ inputs.registry }}/${{ inputs.image_project }}/${{ inputs.image_name }}:${{ inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_project }}/${{ inputs.image_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SHA Tag** | \`sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Built from** | ${{ github.repository }} @ ${{ github.ref }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Build time** | $(date) |" >> $GITHUB_STEP_SUMMARY
