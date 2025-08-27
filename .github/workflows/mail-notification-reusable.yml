@@ -68,14 +68,16 @@ jobs:
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT || 25 }}
-          subject: "[${{ inputs.deploy_status }}] ${{ inputs.project-name }} - ${{ inputs.env-name }} Deployment Status"
+          subject: "[${{ inputs.deploy_status }}]: Deploy ${{ inputs.project-name }} on ${{ inputs.env-name }} "
           body: |
             Deployment completed for Smart Lab application.
             Environment: ${{ inputs.env-name }}
             Version: ${{ inputs.version-number }} 
             Deployed to: ${{ inputs.remote-host }}
+            Result: ${{ inputs.deploy_status }}
+            Run details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           to: ${{ vars.EMAIL_RECIPIENTS || 'ericsun@eaton.com' }}
-          from: Smart Lab CI/CD <noreply@eaton.com>
+          from: SZCPC-${{ inputs.project-name }} <noreply@eaton.com>
           secure: false
           ignore_cert: true
           convert_markdown: false

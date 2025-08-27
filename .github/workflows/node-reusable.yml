@@ -1,0 +1,241 @@
+name: Build Node.js Project
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '18'
+      package_manager:
+        description: 'Package manager (npm, yarn, pnpm)'
+        required: false
+        type: string
+        default: 'npm'
+      build_command:
+        description: 'Build command'
+        required: false
+        type: string
+        default: 'build'
+      working_directory:
+        description: 'Directory containing the project'
+        required: false
+        type: string
+        default: '.'
+      cache_dependency_path:
+        description: 'Path to dependency file (package.json, yarn.lock)'
+        required: false
+        type: string
+        default: 'package.json'
+      artifacts_path:
+        description: 'Path to build artifacts'
+        required: false
+        type: string
+        default: 'dist'
+      pre_build_command:
+        description: 'Command to run before build'
+        required: false
+        type: string
+        default: ''
+      run_tests:
+        description: 'Run tests before build'
+        required: false
+        type: boolean
+        default: true
+      image_project:
+        description: 'Project or namespace for the Docker image'
+        required: true
+        type: string
+        default: 'unknown'
+      image_name:
+        description: 'Name of the Docker image'
+        required: true
+        type: string
+      dockerfile_path:
+        description: 'Path to the Dockerfile'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      artifact_name:
+        description: 'Name of the artifact to download'
+        required: false
+        type: string
+        default: 'build-artifacts'
+      artifact_destination:
+        description: 'Destination path for downloaded artifacts'
+        required: false
+        type: string
+        default: 'dist'
+      build_args:
+        description: 'Docker build arguments (JSON format)'
+        required: false
+        type: string
+        default: '{}'
+      push_image:
+        description: 'Whether to push the image'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      build_result:
+        description: 'Result of the build process'
+        value: ${{ jobs.build.outputs.build_result }}
+      version:
+        description: 'Determined version for the build'
+        value: ${{ jobs.detect-version.outputs.version }}
+      environment-name:
+        description: "Determined environment based on branch"
+        value: ${{ jobs.determine-environment.outputs.environment }}
+      is-release:
+        description: "Whether this is a release build"
+        value: ${{ jobs.detect-version.outputs.is-release }}
+      image_uri:
+        description: 'URI of the built Docker image'
+        value: ${{ jobs.build-docker.outputs.image_uri }}
+
+jobs:
+  print-github-info:
+    name: Print GitHub Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print GitHub event info
+        run: |
+          echo "GitHub Event Name: ${{ github.event_name }}"
+          echo "GitHub Repository: ${{ github.repository }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+          echo "GitHub Ref Name: ${{ github.ref_name }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+          echo "GitHub Actor: ${{ github.actor }}"
+          echo "GitHub Workflow: ${{ github.workflow }}"
+          echo "GitHub Workspace: ${{ github.workspace }}"
+          echo "GitHub Event Path: ${{ github.event_path }}"
+
+  detect-version:
+    name: Detect Semantic Version
+    uses: ./.github/workflows/version-reusable.yml
+
+  determine-environment:
+    name: Determine Environment
+    uses: ./.github/workflows/environment.yml
+    with:
+      branch_name: ${{ github.ref_name }}
+
+  build:
+    name: Build Node.js Project
+    needs: detect-version
+    runs-on: ubuntu-latest
+    outputs:
+      build_result: ${{ steps.build_output.outputs.status }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ inputs.node_version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: ${{ inputs.package_manager }}
+          cache-dependency-path: ${{ inputs.working_directory }}/${{ inputs.cache_dependency_path }}
+
+      - name: Update Project Version
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          VERSION=${{ needs.detect-version.outputs.version }}
+          if [ -f package.json ]; then
+            echo "Updating version in package.json to $VERSION"
+            npm version $VERSION --no-git-tag-version
+          else
+            echo "No package.json found, skipping version update"
+          fi
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -d '/' -f 2)
+          BRANCH_NAME=${{ github.ref_name }}
+          echo "Repository name: ${REPO_NAME}"
+          echo "Branch name: ${BRANCH_NAME}"
+          case "$REPO_NAME" in
+            "szcpc_suzhou_smart_lab_portal")
+                sed -i "s#VITE_VERSION_NUMBER=.*#VITE_VERSION_NUMBER=${VERSION}#ig" .env;
+                if [ "$BRANCH_NAME" == "main" ]; then
+                  echo "Configure project for production."
+                  sed -i 's#VITE_API_ADDR=.*#VITE_API_ADDR=/smart-lab#ig' .env;
+                else
+                  sed -i 's#VITE_API_ADDR=.*#VITE_API_ADDR=/api/lab#ig' .env;
+                fi
+                cat .env
+              ;;
+            *)
+              echo "No specific environment variable to set for this repository"
+              ;;
+          esac
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ "${{ inputs.package_manager }}" == "yarn" ]; then
+            yarn install --frozen-lockfile
+          elif [ "${{ inputs.package_manager }}" == "pnpm" ]; then
+            npm install -g pnpm
+            pnpm install --frozen-lockfile
+          else
+            # Check if package-lock.json exists
+            if [ -f "package-lock.json" ]; then
+              npm ci --legacy-peer-deps
+            else
+              npm install --legacy-peer-deps
+            fi
+          fi
+
+      - name: Run tests
+        if: ${{ inputs.run_tests }}
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ "${{ inputs.package_manager }}" == "yarn" ]; then
+            yarn test
+          elif [ "${{ inputs.package_manager }}" == "pnpm" ]; then
+            pnpm test
+          else
+            npm test
+          fi
+
+      - name: Run pre-build command
+        if: ${{ inputs.pre_build_command != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.pre_build_command }}
+
+      - name: Build project
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ "${{ inputs.package_manager }}" == "yarn" ]; then
+            yarn ${{ inputs.build_command }}
+          elif [ "${{ inputs.package_manager }}" == "pnpm" ]; then
+            pnpm ${{ inputs.build_command }}
+          else
+            npm run ${{ inputs.build_command }}
+          fi
+
+      - name: Set build result
+        id: build_output
+        run: echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.working_directory }}/${{ inputs.artifacts_path }}
+          retention-days: 7
+
+  build-docker:
+    name: Build Docker Image
+    needs: [ build , detect-version ]
+    uses: ./.github/workflows/node-docker-reusable.yml
+    with:
+      artifact_destination: ${{ inputs.artifact_destination }}
+      image_project: ${{ inputs.image_project }}
+      image_name: ${{ inputs.image_name }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
+      image_tag: ${{ needs.detect-version.outputs.version }}
+      push_image: ${{ inputs.push_image }}
+      build_args: ${{ inputs.build_args }}
+      artifact_name: ${{ inputs.artifact_name }}

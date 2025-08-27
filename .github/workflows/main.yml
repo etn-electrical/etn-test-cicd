@@ -47,6 +47,7 @@ env:
 
 jobs:
   transfer-image:
+    name: Transfer Docker Image to Harbor via VPN
     runs-on: ubuntu-latest
 
     steps:
@@ -281,7 +282,7 @@ jobs:
           TARGET_FULL_NAME="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${TARGET_IMAGE_NAME}:${TARGET_IMAGE_TAG}"
           if [[ -z "${HARBOR_PROJECT}" || -z "${TARGET_IMAGE_NAME}" ||  -z "${TARGET_IMAGE_TAG}" ]]
           then
-            TARGET_FULL_NAME="${SOURCE_IMAGE//ghcr.io\/ericsunf22/${HARBOR_REGISTRY}}"
+            TARGET_FULL_NAME="${SOURCE_IMAGE//ghcr.io\/${{ github.repository_owner }}/${HARBOR_REGISTRY}}"
           fi
           echo "Tagging image for Harbor:"
           echo "Source: $SOURCE_IMAGE"
