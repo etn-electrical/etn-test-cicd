@@ -47,6 +47,9 @@ on:
       version-number:
         description: "Version number determined for the build"
         value: ${{ jobs.detect-version.outputs.version }}
+      is-release:
+        description: "Whether this is a release build"
+        value: ${{ jobs.detect-version.outputs.is-release }}
 
 permissions:
   contents: write

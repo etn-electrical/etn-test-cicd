@@ -169,7 +169,8 @@ jobs:
             else
               # Direct push to main (should be rare)
               IS_RELEASE="true"
-              VERSION="$BASE_VERSION"
+              # VERSION="$BASE_VERSION"
+              VERSION=$(increment_version "$BASE_VERSION" "patch")
               echo "Direct push to main - using base version: $VERSION"
             fi
 
