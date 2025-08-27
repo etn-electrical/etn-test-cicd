@@ -24,11 +24,11 @@ on:
         description: 'Target image name in Harbor'
         required: false
         type: string
-        default: 'lab-transfer'
+        default: ''
       target_image_tag:
         description: 'Target image tag'
         required: false
-        default: '2.4.1'
+        default: ''
         type: string
 env:
   SOURCE_IMAGE: ${{ inputs.source_image }}
