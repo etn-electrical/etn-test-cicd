@@ -123,6 +123,7 @@ jobs:
     outputs:
       build_result: ${{ steps.build_output.outputs.status }}
       version: ${{ needs.detect-version.outputs.version }}
+      image_uri: ${{ needs.build-docker.outputs.image_uri }}
 
     steps:
       - name: Checkout repository
