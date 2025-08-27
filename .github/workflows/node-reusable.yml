@@ -127,7 +127,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build_result: ${{ steps.build_output.outputs.status }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -229,14 +228,14 @@ jobs:
 
   build-docker:
     name: Build Docker Image
-    needs: [ build ]
+    needs: [ build , detect-version ]
     uses: ./.github/workflows/node-docker-reusable.yml
     with:
       artifact_destination: ${{ inputs.artifact_destination }}
       image_project: ${{ inputs.image_project }}
       image_name: ${{ inputs.image_name }}
       dockerfile_path: ${{ inputs.dockerfile_path }}
-      image_tag: ${{ needs.build.outputs.version }}
+      image_tag: ${{ needs.detect-version.outputs.version }}
       push_image: ${{ inputs.push_image }}
       build_args: ${{ inputs.build_args }}
       artifact_name: ${{ inputs.artifact_name }}

@@ -47,6 +47,7 @@ env:
 
 jobs:
   transfer-image:
+    name: Transfer Docker Image to Harbor via VPN
     runs-on: ubuntu-latest
 
     steps:
