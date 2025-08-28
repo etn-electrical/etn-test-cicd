@@ -16,6 +16,7 @@ on:
 
 jobs:
   list-and-cleanup:
+    name: List and Cleanup Docker Images in GHCR
     runs-on: ubuntu-latest
     steps:
       - name: Get repository name
