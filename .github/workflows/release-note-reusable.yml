@@ -2,6 +2,10 @@ name: Generate Release Notes and Tags
 
 on:
   workflow_call:
+    secrets:
+      DEPLOY_TOKEN:
+        required: true
+        description: 'SSH deploy key with write access to the repository'
     inputs:
       version:
         required: true
@@ -43,10 +47,16 @@ jobs:
       pull-requests: read
 
     steps:
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_TOKEN }}
+
       - name: Checkout code
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_TOKEN }}
 
       - name: Setup Git
         run: |
