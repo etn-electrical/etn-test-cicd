@@ -139,3 +139,10 @@ jobs:
           echo "| **SHA Tag** | \`sha-${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Built from** | ${{ github.repository }} @ ${{ github.ref }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Build time** | $(date) |" >> $GITHUB_STEP_SUMMARY
+  clean-images:
+    name: Cleanup Old Docker Images
+#    needs: build-docker
+    uses: ./.github/workflows/clean-repo-packages.yml
+    with:
+      package-name: ${{ inputs.image_project }}/${{ inputs.image_name }}
+      keep-versions: '2'

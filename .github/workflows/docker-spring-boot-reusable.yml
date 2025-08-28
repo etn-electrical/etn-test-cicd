@@ -191,3 +191,10 @@ jobs:
             echo "push-status=skipped" >> $GITHUB_OUTPUT
             echo "Image push was skipped"
           fi
+  clean-images:
+    name: Cleanup Old Docker Images
+#    needs: build-docker
+    uses: ./.github/workflows/clean-repo-packages.yml
+    with:
+      package-name: ${{ inputs.image-project}}/${{ inputs.image-name }}
+      keep-versions: '2'
