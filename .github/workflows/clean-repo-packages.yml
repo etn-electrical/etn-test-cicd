@@ -54,7 +54,8 @@ jobs:
           echo "$VERSIONS"
           
           # Count versions and save to output
-          VERSION_COUNT=$(echo "$VERSIONS" | grep -c "id:")
+          VERSION_COUNT=$(echo "$VERSIONS" | grep -c "id")
+          echo "VERSION_COUNT=$VERSION_COUNT"
           echo "version_count_before=$VERSION_COUNT" >> $GITHUB_OUTPUT
           
           # Store the full list for the summary
