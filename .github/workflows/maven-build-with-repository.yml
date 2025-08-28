@@ -125,9 +125,42 @@ jobs:
           fi
 
           echo "✅ pom.xml found in remote repository" 
+          
+      - name: Check if package exists
+        id: check-package
+        run: |
+          cd remote-repo
+
+          # Use extracted coordinates from previous step
+          GROUP_ID="${{ steps.extract-coordinates.outputs.group-id }}"
+          ARTIFACT_ID="${{ steps.extract-coordinates.outputs.artifact-id }}"
+          VERSION="${{ steps.extract-coordinates.outputs.version }}"
+
+          echo "Checking if package exists: ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
+
+          set +e  # Don't exit on error
+          mvn dependency:get \
+            -DgroupId=${GROUP_ID} \
+            -DartifactId=${ARTIFACT_ID} \
+            -Dversion=${VERSION} \
+            -DrepoUrl=https://maven.pkg.github.com/etn-electrical/etn-test-cicd \
+            -Dtransitive=false \
+            -quiet
+
+          # Store the exit code
+          EXISTS=$?
+          if [ $EXISTS -eq 0 ]; then
+            echo "package-exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Package ${GROUP_ID}:${ARTIFACT_ID}:${VERSION} already exists"
+          else
+            echo "package-exists=false" >> $GITHUB_OUTPUT
+            echo "🔄 Package ${GROUP_ID}:${ARTIFACT_ID}:${VERSION} does not exist"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Deploy with Maven (Skip Tests)
-        if: ${{ !inputs.run-tests }}
+        if: ${{ !inputs.run-tests && steps.check-package.outputs.package-exists == 'false' }}
         run: |
           cd remote-repo
           mvn -B ${{ inputs.maven-args }} -DskipTests -P github
@@ -135,7 +168,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Deploy with Maven (With Tests)
-        if: ${{ inputs.run-tests }}
+        if: ${{ inputs.run-tests && steps.check-package.outputs.package-exists == 'false' }}
         run: |
           cd remote-repo
           mvn -B ${{ inputs.maven-args }} -P github
@@ -144,6 +177,7 @@ jobs:
 
       - name: Find JAR file
         id: find-jar
+        if: ${{ steps.check-package.outputs.package-exists == 'false' }}
         run: |
           cd remote-repo
           JAR_PATH=$(find target -name "*.jar" -not -name "*sources.jar" -not -name "*javadoc.jar" | head -n 1)
@@ -151,6 +185,7 @@ jobs:
           echo "Found JAR: ${JAR_PATH}"
 
       - name: Upload JAR artifact
+        if: ${{ steps.check-package.outputs.package-exists == 'false' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact-name }}
