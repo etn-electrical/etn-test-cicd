@@ -32,6 +32,7 @@ jobs:
           PACKAGES=$(gh api -H "Accept: application/vnd.github+json" /orgs/${{ github.repository_owner }}/packages?package_type=container | jq -r '.[] | select(.repository.name == "${{ steps.repo-name.outputs.name }}") | .name')
           echo "Found packages:"
           echo "$PACKAGES"
+          echo "Found Token: $GH_TOKEN"
           echo "packages=$(echo $PACKAGES | tr '\n' ' ')" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
@@ -52,7 +53,7 @@ jobs:
           package-name: ${{ steps.package-name.outputs.name }}
           package-type: 'container'
           min-versions-to-keep: ${{ inputs.keep-versions || 2 }}
-          token: ${{ secrets.PACKAGE_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           delete-only-untagged-versions: false
 
       - name: Log cleanup results
