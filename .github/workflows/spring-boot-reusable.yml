@@ -141,3 +141,10 @@ jobs:
           echo "Image Digest: ${{ needs.docker-build.outputs.image-digest }}"
           echo "Push Status: ${{ needs.docker-build.outputs.push-status }}"
           echo "::endgroup::"
+
+  clean-images:
+    name: Cleanup Old Docker Images
+    #    needs: build-docker
+    uses: ./.github/workflows/clean-repo-packages.yml
+    with:
+      package-name: '${{ inputs.image-project }}/${{ inputs.artifact-name }}'

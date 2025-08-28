@@ -239,3 +239,10 @@ jobs:
       push_image: ${{ inputs.push_image }}
       build_args: ${{ inputs.build_args }}
       artifact_name: ${{ inputs.artifact_name }}
+
+  clean-images:
+    name: Cleanup Old Docker Images
+    #    needs: build-docker
+    uses: ./.github/workflows/clean-repo-packages.yml
+    with:
+      package-name: '${{ inputs.image_project }}/${{ inputs.image_name }}'
