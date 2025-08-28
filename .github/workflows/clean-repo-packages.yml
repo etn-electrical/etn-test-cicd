@@ -70,18 +70,18 @@ jobs:
         with:
           package-name: ${{ steps.package-name.outputs.name }}
           package-type: 'container'
-          min-versions-to-keep: 1
+          min-versions-to-keep: 8
           token: ${{ secrets.GITHUB_TOKEN }}
           delete-only-untagged-versions: true
 
-      - name: Delete old container images (with tags)
-        uses: actions/delete-package-versions@v4
-        with:
-          package-name: ${{ steps.package-name.outputs.name }}
-          package-type: 'container'
-          min-versions-to-keep: ${{ inputs.keep-versions || 4 }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          delete-only-untagged-versions: false
+#      - name: Delete old container images (with tags)
+#        uses: actions/delete-package-versions@v4
+#        with:
+#          package-name: ${{ steps.package-name.outputs.name }}
+#          package-type: 'container'
+#          min-versions-to-keep: ${{ inputs.keep-versions || 4 }}
+#          token: ${{ secrets.GITHUB_TOKEN }}
+#          delete-only-untagged-versions: false
 
       - name: List package versions after cleanup
         id: after-cleanup
