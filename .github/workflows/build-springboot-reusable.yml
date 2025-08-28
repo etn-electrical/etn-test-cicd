@@ -159,7 +159,7 @@ jobs:
           # Clone using HTTPS with token authentication
           if [[ "${{ inputs.remote-repository }}" == *"github.com"* ]]; then
             # For GitHub repositories, use the PACKAGE_TOKEN
-            REPO_URL=$(echo "${{ inputs.remote-repository }}" | sed 's|git@github.com:|https://|' | sed 's|\.git$||')
+            REPO_URL=$(echo "${{ inputs.remote-repository }}" | sed 's|git@github.com:|https://github.com/|' | sed 's|\.git$||')
             git clone https://x-access-token:${{ secrets.PACKAGE_TOKEN }}@${REPO_URL#https://}.git .
             echo "✅ Cloned GitHub repository using token authentication"
           else
