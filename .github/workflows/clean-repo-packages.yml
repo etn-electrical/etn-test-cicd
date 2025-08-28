@@ -38,26 +38,50 @@ jobs:
           fi
           echo "name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
 
-      - name: List package versions before cleanup
-        id: before-cleanup
+      - name: Check if package exists
+        id: package-check
         run: |
           # URL encode the package name to handle slashes
           ENCODED_PACKAGE_NAME=$(echo "${{ steps.package-name.outputs.name }}" | sed 's|/|%2F|g')
           
+          echo "Checking if package ${ENCODED_PACKAGE_NAME} exists..."
+          
+          # Use gh api to check if package exists
+          RESULT=$(gh api -H "Accept: application/vnd.github+json" \
+            /orgs/${{ github.repository_owner }}/packages/container/${ENCODED_PACKAGE_NAME}/versions \
+            --silent || echo "not_found")
+          
+          if [[ "$RESULT" == "not_found" || "$RESULT" == "[]" ]]; then
+            echo "package_exists=false" >> $GITHUB_OUTPUT
+            echo "No package found with name: ${{ steps.package-name.outputs.name }}"
+          else
+            echo "package_exists=true" >> $GITHUB_OUTPUT
+            echo "Package exists: ${{ steps.package-name.outputs.name }}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+
+      - name: List package versions before cleanup
+        id: before-cleanup
+        if: steps.package-check.outputs.package_exists == 'true'
+        run: |
+          # URL encode the package name to handle slashes
+          ENCODED_PACKAGE_NAME=$(echo "${{ steps.package-name.outputs.name }}" | sed 's|/|%2F|g')
+
           echo "Listing versions for package ${ENCODED_PACKAGE_NAME} under token ${GH_TOKEN}"
-    
+
           VERSIONS=$(gh api -H "Accept: application/vnd.github+json" \
             /orgs/${{ github.repository_owner }}/packages/container/${ENCODED_PACKAGE_NAME}/versions \
             --jq '.[] | {id: .id, tags: .metadata.container.tags, created_at: .created_at}')
-          
+
           echo "Before cleanup - found versions:"
           echo "$VERSIONS"
-          
+
           # Count versions and save to output
-          VERSION_COUNT=$(echo "$VERSIONS" | grep -c "id")
+          VERSION_COUNT=$(echo "$VERSIONS" | grep -c "id" || echo 0)
           echo "VERSION_COUNT=$VERSION_COUNT"
           echo "version_count_before=$VERSION_COUNT" >> $GITHUB_OUTPUT
-          
+
           # Store the full list for the summary
           echo "versions_before<<EOF" >> $GITHUB_OUTPUT
           echo "$VERSIONS" >> $GITHUB_OUTPUT
@@ -65,7 +89,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
+      - name: Set default values if no package exists
+        id: default-values
+        if: steps.package-check.outputs.package_exists != 'true'
+        run: |
+          echo "version_count_before=0" >> $GITHUB_OUTPUT
+          echo "versions_before=No versions found" >> $GITHUB_OUTPUT
+          echo "version_count_after=0" >> $GITHUB_OUTPUT
+          echo "versions_after=No versions found" >> $GITHUB_OUTPUT
+
       - name: Delete old container images (untagged only)
+        if: steps.package-check.outputs.package_exists == 'true'
         uses: actions/delete-package-versions@v4
         with:
           package-name: ${{ steps.package-name.outputs.name }}
@@ -74,35 +108,37 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           delete-only-untagged-versions: true
 
-#      - name: Delete old container images (with tags)
-#        uses: actions/delete-package-versions@v4
-#        with:
-#          package-name: ${{ steps.package-name.outputs.name }}
-#          package-type: 'container'
-#          min-versions-to-keep: ${{ inputs.keep-versions || 4 }}
-#          token: ${{ secrets.GITHUB_TOKEN }}
-#          delete-only-untagged-versions: false
+      #      - name: Delete old container images (with tags)
+      #        if: steps.package-check.outputs.package_exists == 'true'
+      #        uses: actions/delete-package-versions@v4
+      #        with:
+      #          package-name: ${{ steps.package-name.outputs.name }}
+      #          package-type: 'container'
+      #          min-versions-to-keep: ${{ inputs.keep-versions || 4 }}
+      #          token: ${{ secrets.GITHUB_TOKEN }}
+      #          delete-only-untagged-versions: false
 
       - name: List package versions after cleanup
         id: after-cleanup
+        if: steps.package-check.outputs.package_exists == 'true'
         run: |
           # URL encode the package name to handle slashes
-          ENCODED_PACKAGE_NAME=$(echo "${{ steps.package-name.outputs.name }}" | sed 's|/|%2F|g')   
-          
+          ENCODED_PACKAGE_NAME=$(echo "${{ steps.package-name.outputs.name }}" | sed 's|/|%2F|g')
+
           echo "Listing versions after cleanup for package ${ENCODED_PACKAGE_NAME}"
-          
+
           VERSIONS=$(gh api -H "Accept: application/vnd.github+json" \
             /orgs/${{ github.repository_owner }}/packages/container/${ENCODED_PACKAGE_NAME}/versions \
             --jq '.[] | {id: .id, tags: .metadata.container.tags, created_at: .created_at}')
-          
+
           echo "After cleanup - remaining versions:"
           echo "$VERSIONS"
-          
+
           # Count versions and save to output
-          VERSION_COUNT=$(echo "$VERSIONS" | grep -c "id")
+          VERSION_COUNT=$(echo "$VERSIONS" | grep -c "id" || echo 0)
           echo "VERSION_COUNT=$VERSION_COUNT"
           echo "version_count_after=$VERSION_COUNT" >> $GITHUB_OUTPUT
-          
+
           # Store the full list for the summary
           echo "versions_after<<EOF" >> $GITHUB_OUTPUT
           echo "$VERSIONS" >> $GITHUB_OUTPUT
@@ -114,19 +150,25 @@ jobs:
         run: |
           echo "## Package Cleanup Summary" >> $GITHUB_STEP_SUMMARY
           echo "Package: \`${{ steps.package-name.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "Versions before cleanup: ${{ steps.before-cleanup.outputs.version_count_before }}" >> $GITHUB_STEP_SUMMARY
-          echo "Versions after cleanup: ${{ steps.after-cleanup.outputs.version_count_after }}" >> $GITHUB_STEP_SUMMARY
-          echo "Versions removed: $((${{ steps.before-cleanup.outputs.version_count_before }} - ${{ steps.after-cleanup.outputs.version_count_after }}))" >> $GITHUB_STEP_SUMMARY
-          echo "Kept latest: ${{ inputs.keep-versions || 4 }} versions" >> $GITHUB_STEP_SUMMARY
           
-          echo "### Before Cleanup" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.before-cleanup.outputs.versions_before }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          
-          echo "### After Cleanup" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.after-cleanup.outputs.versions_after }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          
+          if [[ "${{ steps.package-check.outputs.package_exists }}" == "true" ]]; then
+            echo "Versions before cleanup: ${{ steps.before-cleanup.outputs.version_count_before }}" >> $GITHUB_STEP_SUMMARY
+            echo "Versions after cleanup: ${{ steps.after-cleanup.outputs.version_count_after }}" >> $GITHUB_STEP_SUMMARY
+            echo "Versions removed: $((${{ steps.before-cleanup.outputs.version_count_before }} - ${{ steps.after-cleanup.outputs.version_count_after }}))" >> $GITHUB_STEP_SUMMARY
+            echo "Kept latest: ${{ inputs.keep-versions || 4 }} versions" >> $GITHUB_STEP_SUMMARY
+
+            echo "### Before Cleanup" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.before-cleanup.outputs.versions_before }}" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+            echo "### After Cleanup" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.after-cleanup.outputs.versions_after }}" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**No package found with this name.**" >> $GITHUB_STEP_SUMMARY
+            echo "Please verify that the package name is correct and that it exists in the GitHub Container Registry." >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "Cleanup completed at $(date)" >> $GITHUB_STEP_SUMMARY

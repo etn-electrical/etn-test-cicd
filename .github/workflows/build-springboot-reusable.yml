@@ -152,13 +152,21 @@ jobs:
       - name: Checkout and build from remote repository
         if: ${{ inputs.remote-repository != '' }}
         run: |
-          env
           # Create a temporary directory for the remote repository
           mkdir -p remote-repo
           cd remote-repo
           
-          # Clone the remote repository
-          git clone ${{ inputs.remote-repository }} .
+          # Clone using HTTPS with token authentication
+          if [[ "${{ inputs.remote-repository }}" == *"github.com"* ]]; then
+            # For GitHub repositories, use the PACKAGE_TOKEN
+            REPO_URL=$(echo "${{ inputs.remote-repository }}" | sed 's|git@github.com:|https://|' | sed 's|\.git$||')
+            git clone https://x-access-token:${{ secrets.PACKAGE_TOKEN }}@${REPO_URL#https://}.git .
+            echo "✅ Cloned GitHub repository using token authentication"
+          else
+            # For other repositories, use the provided URL directly
+            git clone ${{ inputs.remote-repository }} .
+            echo "✅ Cloned repository using provided URL"
+          fi
           
           echo "✅ Cloned remote repository: ${{ inputs.remote-repository }}: "
           ls -alth
