@@ -26,11 +26,6 @@ on:
         type: string
         default: 'app-artifact'
         description: 'Name for the uploaded artifact'
-      version-args:
-        required: false
-        type: string
-        default: ''
-        description: 'Version arguments to pass to Maven'
       remote-repository:
         required: false
         type: string
