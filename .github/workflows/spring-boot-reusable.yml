@@ -36,6 +36,11 @@ on:
         type: string
         default: 'Dockerfile'
         description: 'Path to the Dockerfile'
+      remote-repository:
+        required: false
+        type: string
+        default: ''
+        description: 'Optional remote repository to checkout and build'
     outputs:
       artifact-name:
         description: "Name of the uploaded artifact"
@@ -116,6 +121,7 @@ jobs:
       run-tests: ${{ inputs.run-tests }}
       version-args: ${{ needs.detect-version.outputs.version }}
       artifact-name: ${{ inputs.artifact-name }}
+      remote-repository: ${{ inputs.remote-repository }}
 
   docker-build:
     name: Build Docker Image

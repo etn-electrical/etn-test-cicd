@@ -31,6 +31,11 @@ on:
         type: string
         default: ''
         description: 'Version arguments to pass to Maven'
+      remote-repository:
+        required: false
+        type: string
+        default: ''
+        description: 'Optional remote repository to checkout and build'
     outputs:
       artifact-name:
         description: "Name of the uploaded artifact"
@@ -144,6 +149,38 @@ jobs:
           </settings>
           EOF
 
+      - name: Checkout and build from remote repository
+        if: ${{ inputs.remote-repository != '' }}
+        run: |
+          env
+          # Create a temporary directory for the remote repository
+          mkdir -p remote-repo
+          cd remote-repo
+          
+          # Clone the remote repository
+          git clone ${{ inputs.remote-repository }} .
+          
+          echo "✅ Cloned remote repository: ${{ inputs.remote-repository }}: "
+          ls -alth
+          
+          # Check if pom.xml exists
+          if [ ! -f "pom.xml" ]; then
+            echo "❌ Error: pom.xml not found in the remote repository"
+            exit 1
+          fi
+          
+          echo "✅ pom.xml found in remote repository"
+          
+          # Setup Maven settings for the remote build
+          cp $HOME/.m2/settings.xml .
+          
+          # Run Maven build and deploy
+          mvn -B clean deploy
+          
+          # Return to original directory
+          cd ..
+          
+          echo "✅ Remote repository build and deploy completed"
 
       - name: Update version in pom.xml
         run: |
