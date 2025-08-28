@@ -121,34 +121,28 @@ jobs:
             exit 1
           fi
 
-          echo "✅ pom.xml found in remote repository"
-
-          # Setup Maven settings for the remote build
-          cp $HOME/.m2/settings.xml .
-
-          # Run Maven build and deploy
-          mvn -B clean deploy
-
-          # Return to original directory
-          cd ..
-
-          echo "✅ Remote repository build and deploy completed"
+          echo "✅ pom.xml found in remote repository" 
 
       - name: Deploy with Maven (Skip Tests)
         if: ${{ !inputs.run-tests }}
-        run: mvn -B ${{ inputs.maven-args }} -DskipTests
+        run: |
+          cd remote-repo
+          mvn -B ${{ inputs.maven-args }} -DskipTests -P github
         env:
           GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Deploy with Maven (With Tests)
         if: ${{ inputs.run-tests }}
-        run: mvn -B ${{ inputs.maven-args }}
+        run: |
+          cd remote-repo
+          mvn -B ${{ inputs.maven-args }} -P github
         env:
           GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Find JAR file
         id: find-jar
         run: |
+          cd remote-repo
           JAR_PATH=$(find target -name "*.jar" -not -name "*sources.jar" -not -name "*javadoc.jar" | head -n 1)
           echo "jar-path=${JAR_PATH}" >> $GITHUB_OUTPUT
           echo "Found JAR: ${JAR_PATH}"
