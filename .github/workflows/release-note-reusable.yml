@@ -2,11 +2,20 @@ name: Generate Release Notes and Tags
 
 on:
   workflow_call:
+    secrets:
+      DEPLOY_TOKEN:
+        required: true
+        description: 'SSH deploy key with write access to the repository'
     inputs:
       version:
         required: true
         type: string
         description: 'Version number for the release (format: x.y.z)'
+      image_uri:
+        required: true
+        type: string
+        default: ''
+        description: 'Docker image URL to include in the release notes'
       release-title:
         required: false
         type: string
@@ -27,7 +36,8 @@ on:
         type: string
         default: 'main'
         description: 'Base branch to generate release notes from'
-
+env:
+  DOCKER_IMAGE_URI: ${{ inputs.image_uri }}
 jobs:
   generate-release:
     name: Generate Release Notes and Tag
@@ -37,10 +47,16 @@ jobs:
       pull-requests: read
 
     steps:
+#      - name: Set up SSH agent
+#        uses: webfactory/ssh-agent@v0.8.0
+#        with:
+#          ssh-private-key: ${{ secrets.DEPLOY_TOKEN }}
+
       - name: Checkout code
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_TOKEN }}
 
       - name: Setup Git
         run: |
@@ -96,15 +112,13 @@ jobs:
 
           # Add artifact information
           echo -e "\n## Artifacts" >> formatted-notes.md;
-          echo "- Docker image: \`ghcr.io/${{ github.repository }}:${{ inputs.tag-prefix }}${{ inputs.version }}\`" >> formatted-notes.md;
-          echo "- JAR file: \`${{ github.event.repository.name }}-${{ inputs.version }}.jar\`" >> formatted-notes.md;
+          echo "- Docker image: \`${DOCKER_IMAGE_URI}\`" >> formatted-notes.md;
       
           # Add installation instructions
           echo -e "\n## Installation" >> formatted-notes.md;
           echo "### Docker" >> formatted-notes.md;
           echo "\`\`\`bash" >> formatted-notes.md;
-          echo "docker pull ghcr.io/${{ github.repository }}:${{ inputs.tag-prefix }}${{ inputs.version }}" >> formatted-notes.md;
-          echo "docker run -p 8080:8080 ghcr.io/${{ github.repository }}:${{ inputs.tag-prefix }}${{ inputs.version }}" >> formatted-notes.md;
+          echo "docker pull ${DOCKER_IMAGE_URI}" >> formatted-notes.md;
           echo "\`\`\`" >> formatted-notes.md;
           
           cat formatted-notes.md > release-notes.md
