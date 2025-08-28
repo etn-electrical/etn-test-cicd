@@ -144,5 +144,4 @@ jobs:
 #    needs: build-docker
     uses: ./.github/workflows/clean-repo-packages.yml
     with:
-      package-name: ${{ inputs.image_project }}/${{ inputs.image_name }}
-      keep-versions: '2'
+      package-name: '${{ inputs.image_project }}/${{ inputs.image_name }}'

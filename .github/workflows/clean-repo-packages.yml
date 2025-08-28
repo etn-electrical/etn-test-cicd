@@ -1,16 +1,18 @@
 name: List and Cleanup GHCR Docker Images
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       package-name:
         description: 'Docker image name to clean up'
+        type: string
         required: false
         default: ''
       keep-versions:
         description: 'Number of latest versions to keep for each package'
+        type: number
         required: false
-        default: '2'
+        default: 2
 
 jobs:
   list-and-cleanup:
