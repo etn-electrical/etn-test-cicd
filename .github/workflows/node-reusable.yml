@@ -244,5 +244,6 @@ jobs:
     name: Cleanup Old Docker Images
     #    needs: build-docker
     uses: ./.github/workflows/clean-repo-packages.yml
+    secrets: inherit
     with:
       package-name: '${{ inputs.image_project }}/${{ inputs.image_name }}'
