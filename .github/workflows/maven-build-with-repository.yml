@@ -44,6 +44,9 @@ jobs:
       jar-path: ${{ steps.find-jar.outputs.jar-path }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
