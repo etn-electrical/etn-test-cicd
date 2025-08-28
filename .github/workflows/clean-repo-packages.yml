@@ -41,9 +41,13 @@ jobs:
       - name: List package versions before cleanup
         id: before-cleanup
         run: |
-          echo "Listing versions for package ${{ steps.package-name.outputs.name }} under token ${GH_TOKEN}"
+          # URL encode the package name to handle slashes
+          ENCODED_PACKAGE_NAME=$(echo "${{ steps.package-name.outputs.name }}" | sed 's|/|%2F|g')
+          
+          echo "Listing versions for package ${ENCODED_PACKAGE_NAME} under token ${GH_TOKEN}"
+    
           VERSIONS=$(gh api -H "Accept: application/vnd.github+json" \
-            /orgs/${{ github.repository_owner }}/packages/container/${{ steps.package-name.outputs.name }}/versions \
+            /orgs/${{ github.repository_owner }}/packages/container/${ENCODED_PACKAGE_NAME}/versions \
             --jq '.[] | {id: .id, tags: .metadata.container.tags, created_at: .created_at}')
           
           echo "Before cleanup - found versions:"
@@ -67,14 +71,18 @@ jobs:
           package-type: 'container'
           min-versions-to-keep: ${{ inputs.keep-versions || 4 }}
           token: ${{ secrets.GITHUB_TOKEN }}
-          delete-only-untagged-versions: false
+          delete-only-untagged-versions: true
 
       - name: List package versions after cleanup
         id: after-cleanup
         run: |
-          echo "Listing versions after cleanup for package ${{ steps.package-name.outputs.name }}"
+          # URL encode the package name to handle slashes
+          ENCODED_PACKAGE_NAME=$(echo "${{ steps.package-name.outputs.name }}" | sed 's|/|%2F|g')   
+          
+          echo "Listing versions after cleanup for package ${ENCODED_PACKAGE_NAME}"
+          
           VERSIONS=$(gh api -H "Accept: application/vnd.github+json" \
-            /orgs/${{ github.repository_owner }}/packages/container/${{ steps.package-name.outputs.name }}/versions \
+            /orgs/${{ github.repository_owner }}/packages/container/${ENCODED_PACKAGE_NAME}/versions \
             --jq '.[] | {id: .id, tags: .metadata.container.tags, created_at: .created_at}')
           
           echo "After cleanup - remaining versions:"
