@@ -126,6 +126,22 @@ jobs:
 
           echo "✅ pom.xml found in remote repository" 
           
+      - name: Extract Maven coordinates
+        id: extract-coordinates
+        run: |
+          cd remote-repo
+          GROUP_ID=$(mvn help:evaluate -Dexpression=project.groupId -q -DforceStdout)
+          ARTIFACT_ID=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+
+          echo "group-id=${GROUP_ID}" >> $GITHUB_OUTPUT
+          echo "artifact-id=${ARTIFACT_ID}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          echo "Extracted coordinates: ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+
       - name: Check if package exists
         id: check-package
         run: |
