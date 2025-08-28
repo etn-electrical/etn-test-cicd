@@ -72,6 +72,9 @@ jobs:
             <profiles>
               <profile>
               <id>github</id>
+              <properties>
+                <altDeploymentRepository>github::https://maven.pkg.github.com/etn-electrical/etn-test-cicd</altDeploymentRepository>
+              </properties>
               <repositories>
                 <repository>
                   <id>central</id>
