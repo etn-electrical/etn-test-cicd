@@ -1,4 +1,4 @@
-name: Spring Boot Build Workflow (Reusable)
+name: Maven Build Workflow with Specified Repository
 
 on:
   workflow_call:
@@ -31,10 +31,12 @@ on:
         type: string
         default: ''
         description: 'Version arguments to pass to Maven'
+      remote-repository:
+        required: false
+        type: string
+        default: ''
+        description: 'Optional remote repository to checkout and build'
     outputs:
-      artifact-name:
-        description: "Name of the uploaded artifact"
-        value: ${{ jobs.build.outputs.artifact-name }}
       jar-path:
         description: "Path to the built JAR file"
         value: ${{ jobs.build.outputs.jar-path }}
@@ -44,66 +46,15 @@ jobs:
     name: Build Spring Boot Application
     runs-on: ubuntu-latest
     outputs:
-      artifact-name: ${{ inputs.artifact-name }}
       jar-path: ${{ steps.find-jar.outputs.jar-path }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           java-version: ${{ inputs.java-version }}
           distribution: 'temurin'
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
-
-      - name: Check PACKAGE_TOKEN availability
-        run: |
-          echo "=== PACKAGE_TOKEN Debug Information ==="
-          
-          # Check if secret exists (safe - no value exposure)
-          TOKEN_LENGTH=$(echo -n "${{ secrets.PACKAGE_TOKEN }}" | wc -c)
-          echo "PACKAGE_TOKEN length: $TOKEN_LENGTH characters"
-          
-          if [ "$TOKEN_LENGTH" -gt 0 ]; then
-            echo "✅ PACKAGE_TOKEN: Available ($TOKEN_LENGTH chars)"
-            echo "TOKEN_EXISTS=true" >> $GITHUB_ENV
-          else
-            echo "❌ PACKAGE_TOKEN: Not available or empty"
-            echo "TOKEN_EXISTS=false" >> $GITHUB_ENV
-          fi
-          
-          # Check repository context
-          echo "Repository: ${{ github.repository }}"
-          echo "Repository Owner: ${{ github.repository_owner }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Event: ${{ github.event_name }}"
-
-      - name: Test token usage
-        if: env.TOKEN_EXISTS == 'true'
-        run: |
-          echo "Testing PACKAGE_TOKEN usage..."
-          # Test if token works (replace with your actual usage)
-          curl -H "Authorization: token ${{ secrets.PACKAGE_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/user
-
-      - name: Provide troubleshooting info
-        if: env.TOKEN_EXISTS == 'false'
-        run: |
-          echo "🔍 TROUBLESHOOTING STEPS:"
-          echo "1. Check if PACKAGE_TOKEN is set in repository secrets"
-          echo "2. Verify you have admin access to this repository"
-          echo "3. Check if secret is set at organization level"
-          echo "4. Ensure secret name matches exactly (case-sensitive)"
-
+          cache: 'maven'
       - name: Setup Maven settings.xml
         run: |
           mkdir -p $HOME/.m2
@@ -143,31 +94,58 @@ jobs:
             </activeProfiles>
           </settings>
           EOF
-
-      - name: Update version in pom.xml
+      - name: Checkout and build from remote repository
+        if: ${{ inputs.remote-repository != '' }}
         run: |
-          mvn versions:set -DnewVersion=${{ inputs.version-args }} -DgenerateBackupPoms=false
+          # Create a temporary directory for the remote repository
+          mkdir -p remote-repo
+          cd remote-repo
 
-      - name: Build with Maven (Skip Tests)
+          # Clone using HTTPS with token authentication
+          if [[ "${{ inputs.remote-repository }}" == *"github.com"* ]]; then
+            # For GitHub repositories, use the PACKAGE_TOKEN
+            REPO_URL=$(echo "${{ inputs.remote-repository }}" | sed 's|git@github.com:|https://github.com/|' | sed 's|\.git$||')
+            git clone https://x-access-token:${{ secrets.PACKAGE_TOKEN }}@${REPO_URL#https://}.git .
+            echo "✅ Cloned GitHub repository using token authentication"
+          else
+            # For other repositories, use the provided URL directly
+            git clone ${{ inputs.remote-repository }} .
+            echo "✅ Cloned repository using provided URL"
+          fi
+
+          echo "✅ Cloned remote repository: ${{ inputs.remote-repository }}: "
+          ls -alth
+
+          # Check if pom.xml exists
+          if [ ! -f "pom.xml" ]; then
+            echo "❌ Error: pom.xml not found in the remote repository"
+            exit 1
+          fi
+
+          echo "✅ pom.xml found in remote repository"
+
+          # Setup Maven settings for the remote build
+          cp $HOME/.m2/settings.xml .
+
+          # Run Maven build and deploy
+          mvn -B clean deploy
+
+          # Return to original directory
+          cd ..
+
+          echo "✅ Remote repository build and deploy completed"
+
+      - name: Deploy with Maven (Skip Tests)
         if: ${{ !inputs.run-tests }}
         run: mvn -B ${{ inputs.maven-args }} -DskipTests
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
-      - name: Build with Maven (With Tests)
+      - name: Deploy with Maven (With Tests)
         if: ${{ inputs.run-tests }}
         run: mvn -B ${{ inputs.maven-args }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish Test Results
-        if: ${{ inputs.run-tests }}
-        # Replace with an allowed action for test reporting
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: '**/target/surefire-reports/*.xml'
-          retention-days: 7
+          GITHUB_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
       - name: Find JAR file
         id: find-jar
@@ -181,17 +159,4 @@ jobs:
         with:
           name: ${{ inputs.artifact-name }}
           path: ${{ steps.find-jar.outputs.jar-path }}
-          retention-days: 7
-
-      - name: Generate build info
-        run: |
-          echo "Build completed at: $(date)" > build-info.txt
-          echo "JAR path: ${{ steps.find-jar.outputs.jar-path }}" >> build-info.txt
-          echo "Java version: ${{ inputs.java-version }}" >> build-info.txt
-
-      - name: Upload build info
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.artifact-name }}-info
-          path: build-info.txt
           retention-days: 7
