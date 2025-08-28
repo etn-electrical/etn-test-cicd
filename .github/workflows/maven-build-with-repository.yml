@@ -113,7 +113,8 @@ jobs:
 
           echo "✅ Cloned remote repository: ${{ inputs.remote-repository }}: "
           ls -alth
-
+          java -version
+          git status
           # Check if pom.xml exists
           if [ ! -f "pom.xml" ]; then
             echo "❌ Error: pom.xml not found in the remote repository"
