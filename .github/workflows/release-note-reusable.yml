@@ -7,7 +7,7 @@ on:
         required: true
         type: string
         description: 'Version number for the release (format: x.y.z)'
-      image_url:
+      image_uri:
         required: true
         type: string
         default: ''
@@ -33,7 +33,7 @@ on:
         default: 'main'
         description: 'Base branch to generate release notes from'
 env:
-  DOCKER_IMAGE_URI: ${{ inputs.image_url }}
+  DOCKER_IMAGE_URI: ${{ inputs.image_uri }}
 jobs:
   generate-release:
     name: Generate Release Notes and Tag
