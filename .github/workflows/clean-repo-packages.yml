@@ -65,7 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
 
-      - name: Delete old container images
+      - name: Delete old container images (untagged only)
         uses: actions/delete-package-versions@v4
         with:
           package-name: ${{ steps.package-name.outputs.name }}
@@ -74,7 +74,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           delete-only-untagged-versions: true
 
-      - name: Delete old container images
+      - name: Delete old container images (with tags)
         uses: actions/delete-package-versions@v4
         with:
           package-name: ${{ steps.package-name.outputs.name }}
