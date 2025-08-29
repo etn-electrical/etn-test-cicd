@@ -162,8 +162,8 @@ jobs:
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.PACKAGE_TOKEN }}" \
             https://maven.pkg.github.com/etn-electrical/etn-test-cicd/${GROUP_ID}/${ARTIFACT_ID}/${VERSION}/${ARTIFACT_ID}-${VERSION}.pom)
-
-          if [ "$RESPONSE" == "200" ]; then
+          echo "RESPONSE_CODE=${RESPONSE}"
+          if [ "$RESPONSE" != "404" ]; then
             echo "package-exists=true" >> $GITHUB_OUTPUT
             echo "✅ Package ${GROUP_ID}:${ARTIFACT_ID}:${VERSION} already exists"
           else
