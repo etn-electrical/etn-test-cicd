@@ -81,12 +81,35 @@ jobs:
           if [[ -z "${{ inputs.dockerfile-path }}" || "${{ inputs.dockerfile-path }}" == "none"  ||  ! -f "${{ inputs.dockerfile-path }}" ]]; 
           then
             echo "Creating default Dockerfile since path is 'none' or file doesn't exist"
-          cat > Dockerfile <<- EOF
-              FROM eclipse-temurin:${{ inputs.java-version }}-jre-alpine
-              WORKDIR /app
-              COPY ./app/*.jar app.jar
-              ENV JAVA_OPTS=""
-              ENTRYPOINT ["sh", "-c", "java \${JAVA_OPTS} -jar app.jar"]
+          cat > Dockerfile <<- 'EOF'
+          FROM eclipse-temurin:${JAVA_VERSION:-17}-jre-alpine as builder
+          WORKDIR application
+          ARG JAR_FILE=app.jar
+          COPY ${JAR_FILE} app.jar
+          RUN java -Djarmode=layertools -jar app.jar extract
+          
+          FROM eclipse-temurin:${JAVA_VERSION:-17}-jre-alpine
+          LABEL "product.app"="eaton"
+          LABEL org.opencontainers.image.source=https://github.com/ericsunf22/desktop-tutorial
+          LABEL org.opencontainers.image.description="Container Image"
+          LABEL org.opencontainers.image.licenses=MIT
+          
+          RUN apk add --no-cache curl
+          
+          WORKDIR application
+          COPY --from=builder application/dependencies/ ./
+          COPY --from=builder application/spring-boot-loader/ ./
+          COPY --from=builder application/snapshot-dependencies/ ./
+          COPY --from=builder application/application/ ./
+          
+          ENV JAVA_OPTS="" \
+          SERVER_PORT="" \
+          LANG=C.UTF-8 \
+          TZ=Asia/Shanghai
+          RUN echo $TZ && ln -sf /usr/share/zoneinfo/$TZ /etc/localtime \
+          && echo $TZ > /etc/timezone
+          #EXPOSE  ${SERVICE_PORT:-8080}  ## Can only read from build args, commented this out for now.
+          ENTRYPOINT ["sh", "-c", "echo 'Starting application.@' ${SERVER_PORT} && java ${JAVA_OPTS} org.springframework.boot.loader.launch.JarLauncher ${@}"]
           EOF
             echo "Default Dockerfile created successfully"
           else
