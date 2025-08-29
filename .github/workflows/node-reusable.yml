@@ -138,6 +138,17 @@ jobs:
           cache: ${{ inputs.package_manager }}
           cache-dependency-path: ${{ inputs.working_directory }}/${{ inputs.cache_dependency_path }}
 
+      - name: Check and execute update script
+        run: |
+          UPDATE_SCRIPT=".github/workflows/update.sh"
+          if [ -f "$UPDATE_SCRIPT" ]; then
+            echo "Found update script, executing..."
+            chmod +x $UPDATE_SCRIPT
+            $UPDATE_SCRIPT
+          else
+            echo "No update script found at $UPDATE_SCRIPT, skipping"
+          fi
+
       - name: Update Project Version
         working-directory: ${{ inputs.working_directory }}
         run: |
