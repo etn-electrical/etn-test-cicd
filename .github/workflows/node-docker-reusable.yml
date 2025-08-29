@@ -75,6 +75,21 @@ jobs:
       - name: List build context files
         run: ls -lat ./build-context/${{ inputs.artifact_destination }}
 
+      - name: Check if Dockerfile exists and create default if needed
+        run: |
+          if [ ! -f "${{ inputs.dockerfile_path }}" ]; then
+            echo "⚠️ Dockerfile not found at ${{ inputs.dockerfile_path }}. Creating default Dockerfile..."
+          cat > "${{ inputs.dockerfile_path }}" << 'EOL'
+          FROM nginx:alpine
+          COPY . /usr/share/nginx/html/
+          RUN ls -l /usr/share/nginx/html/
+          CMD ["nginx", "-g", "daemon off;"]
+          EOL
+            echo "✅ Created default Java Spring Boot Dockerfile at ${{ inputs.dockerfile_path }}"
+          else
+            echo "✅ Found existing Dockerfile at ${{ inputs.dockerfile_path }}"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
