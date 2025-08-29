@@ -38,7 +38,7 @@ on:
 
 jobs:
   build:
-    name: Build Spring Boot Application
+    name: Maven Build Workflow with Specified Repository
     runs-on: ubuntu-latest
     outputs:
       jar-path: ${{ steps.find-jar.outputs.jar-path }}
@@ -154,18 +154,16 @@ jobs:
 
           echo "Checking if package exists: ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
 
-          set +e  # Don't exit on error
-          mvn dependency:get \
-            -DgroupId=${GROUP_ID} \
-            -DartifactId=${ARTIFACT_ID} \
-            -Dversion=${VERSION} \
-            -DrepoUrl=https://maven.pkg.github.com/etn-electrical/etn-test-cicd \
-            -Dtransitive=false \
-            -quiet
+          # Clean local repository cache of this artifact
+          rm -rf ~/.m2/repository/${GROUP_ID//.//}/${ARTIFACT_ID}/${VERSION}
 
-          # Store the exit code
-          EXISTS=$?
-          if [ $EXISTS -eq 0 ]; then
+          # Use Maven's deploy:deploy-file with -DuniqueVersion=false,dryRun=true to check if the file exists
+          set +e  # Don't exit on error
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.PACKAGE_TOKEN }}" \
+            https://maven.pkg.github.com/etn-electrical/etn-test-cicd/${GROUP_ID}/${ARTIFACT_ID}/${VERSION}/${ARTIFACT_ID}-${VERSION}.pom)
+
+          if [ "$RESPONSE" == "200" ]; then
             echo "package-exists=true" >> $GITHUB_OUTPUT
             echo "✅ Package ${GROUP_ID}:${ARTIFACT_ID}:${VERSION} already exists"
           else
